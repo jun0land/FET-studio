@@ -4014,16 +4014,11 @@ def add_files(app: AppState, files: list[tuple[str, bytes]]) -> list[str]:
     if not parsed:
         return warns
 
-    # 기존 소자의 사용자 입력(params)을 보존하면서 다시 그룹핑한다.
+    # 기존 소자의 사용자 입력(params)을 보존하면서 새 파일을 병합한다.
     saved = {g.name: g.params for g in app.devices}
-    existing = []
-    for g in app.devices:
-        existing.append(g)
+    existing = list(app.devices)
 
-    merged = group_files(
-        [pf for pf in parsed]
-    )
-    for g in merged:
+    for g in group_files(parsed):
         old = next((x for x in existing if x.name == g.name), None)
         if old is None:
             existing.append(g)
@@ -4120,8 +4115,13 @@ def test_responsive_css_has_all_four_breakpoints():
 
 def test_panel_widths_use_clamp():
     css = RESPONSIVE_CSS
-    assert "clamp(260px" in css.replace(" ", "")  or "clamp(260px" in css
-    assert "clamp(180px" in css.replace(" ", "") or "clamp(180px" in css
+    assert "clamp(260px, 20vw, 340px)" in css
+    assert "clamp(180px, 13vw, 230px)" in css
+
+
+def test_columns_are_targeted_via_anchor_marker():
+    """st.columns 에 클래스를 못 붙이므로 마커를 :has() 로 찾는다."""
+    assert ":has(.fet-shell-anchor)" in RESPONSIVE_CSS
 
 
 def test_base_css_embeds_fonts():
@@ -4156,37 +4156,39 @@ RESPONSIVE_CSS = """
   section.main > div.block-container { max-width: 100%; }
 }
 
-/* 3열: 편집 패널 / 그래프(신축) / 소자 리스트 */
-div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"]:nth-child(1) {
+/* 3열: 편집 패널 / 그래프(신축) / 소자 리스트.
+   Streamlit 은 st.columns 에 클래스를 붙일 수 없으므로, 첫 컬럼에 심어둔
+   마커 <div class="fet-shell-anchor"> 를 :has() 로 찾아 그 부모를 잡는다. */
+div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(1) {
   flex: 0 0 clamp(260px, 20vw, 340px);
   min-width: 260px;
 }
-div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"]:nth-child(2) {
+div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(2) {
   flex: 1 1 auto;
   min-width: 0;
 }
-div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"]:nth-child(3) {
+div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(3) {
   flex: 0 0 clamp(180px, 13vw, 230px);
   min-width: 180px;
 }
 
-/* 900~1150px: 소자 리스트를 사이드바로 넘긴다 (layout.py 가 같은 조건으로 렌더 위치를 바꾼다) */
+/* 900~1150px: 소자 리스트 열을 접는다 (layout.py 가 같은 폭에서 사이드바로 옮겨 렌더한다) */
 @media (max-width: 1149px) {
-  div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"]:nth-child(3) {
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(3) {
     display: none;
   }
-  div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"]:nth-child(1) {
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(1) {
     flex: 0 0 280px; min-width: 280px;
   }
 }
 
 /* 900px 미만: 전부 세로 스택 */
 @media (max-width: 899px) {
-  div[data-testid="stHorizontalBlock"].fet-shell { flex-direction: column; }
-  div[data-testid="stHorizontalBlock"].fet-shell > div[data-testid="stColumn"] {
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) { flex-direction: column; }
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"] {
     flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important;
   }
-  div[data-testid="stHorizontalBlock"].fet-graphs { flex-direction: column; }
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor) { flex-direction: column; }
 }
 
 /* 소자 리스트는 독립 스크롤 */
@@ -4266,17 +4268,8 @@ from fet_app.ui import (
 )
 from fet_app.ui.viewport import preview_scale
 
-
-def _mark_shell() -> None:
-    """다음에 오는 stHorizontalBlock 에 fet-shell 클래스를 붙인다."""
-    st.markdown(
-        "<script>0</script>"
-        "<style>"
-        "div[data-testid='stHorizontalBlock']:has(> div .fet-shell-anchor)"
-        "{}"
-        "</style>",
-        unsafe_allow_html=True,
-    )
+# theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 3열 컨테이너의 첫 컬럼에 심는다.
+SHELL_ANCHOR = "<div class='fet-shell-anchor'></div>"
 
 
 def render_app() -> None:
@@ -4310,12 +4303,10 @@ def render_app() -> None:
 
     k = preview_scale(app)
     left, center, right = st.columns([1, 3, 1], gap="medium")
-    st.markdown(
-        "<style>div[data-testid='stHorizontalBlock']"
-        "{}</style>", unsafe_allow_html=True)
 
     with left:
-        st.markdown("<div class='fet-shell-anchor'></div>", unsafe_allow_html=True)
+        # 이 마커가 있어야 RESPONSIVE_CSS 가 이 3열 블록을 찾아 폭을 잡는다.
+        st.markdown(SHELL_ANCHOR, unsafe_allow_html=True)
         panel_device.render(app)
         panel_fit.render(app)
         panel_style.render(app)
