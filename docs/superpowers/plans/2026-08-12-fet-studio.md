@@ -814,6 +814,307 @@ EOF
 
 ---
 
+## Task 3b: 다중 측정 런 지원
+
+**배경 (플랜 작성 후 발견):** `Example/1-3 best.xls` 는 시트가 `Data, Calc, Settings, Append1` 이고
+`Data`(162행) 와 `Append1`(162행) 두 번의 측정이 들어 있다. `Settings` 도 블록이 두 개다:
+
+```
+==================================
+Append 1        Latest Run          <- 15:35:10, 데이터는 Append1 시트
+==================================
+...
+==================================
+Initial Run                         <- 15:34:54, 데이터는 Data 시트
+==================================
+```
+
+Task 3 의 `parse_settings` 는 블록을 구분하지 않고 `setdefault` 로 첫 블록만 남긴다. 그 결과
+`Data` 시트(먼저 측정)를 쓰면서 설정은 `Append1`(나중 측정) 것을 읽어 **어긋날 수 있고**,
+재측정분 하나가 조용히 버려진다. 나머지 17개 파일은 단일 런이라 영향 없다.
+
+**사용자 결정:** 런을 모두 읽고 사용자가 고른다. 기본 선택은 Latest Run.
+
+**Files:**
+- Modify: `fet_app/parsing.py`
+- Test: `tests/test_parsing_runs.py`
+
+**Interfaces:**
+- Consumes: Task 3 의 `SettingsInfo`, `load_sheets`
+- Produces:
+  - `parsing.RunSettings` — 필드 `blocks: dict[str, SettingsInfo]`, `order: list[str]`, `latest: str | None`;
+    메서드 `block(name: str) -> SettingsInfo` (없으면 빈 `SettingsInfo`), `__len__`
+  - `parsing.parse_settings(df) -> RunSettings` — **반환 타입이 바뀐다** (기존 `SettingsInfo` → `RunSettings`)
+  - `parsing.data_sheet_names(sheets: dict) -> list[str]` — `Data` 먼저, 그 다음 `AppendN` 을 N 오름차순
+  - `parsing.SHEET_FOR_BLOCK` 은 만들지 않는다. 블록 이름 자체를 시트 이름으로 정규화한다:
+    `Initial Run` → `"Data"`, `Append 1` → `"Append1"`
+
+**블록 헤더 판별 규칙:** 구분선(`=====`) 다음 행의 첫 칸이 블록 헤더다.
+`Initial Run` 이면 `"Data"`, `Append <N>` 이면 `f"Append{N}"` 로 정규화한다.
+같은 행 두 번째 칸에 `Latest Run` 이 있으면 그 블록이 `latest`. `latest` 를 못 찾으면 `order[0]`.
+헤더가 하나도 없는 단일 블록 파일은 전체를 `"Data"` 블록으로 담는다 (기존 17개 파일이 이 경로).
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`tests/test_parsing_runs.py`:
+```python
+import pytest
+
+from fet_app.parsing import (
+    RunSettings, data_sheet_names, load_sheets, parse_settings, settings_frame,
+)
+
+
+def _runs(path):
+    b = path.read_bytes()
+    sheets, engine = load_sheets(b)
+    return sheets, parse_settings(settings_frame(b, sheets, engine))
+
+
+def test_single_run_files_have_one_block(example_dir):
+    _sheets, rs = _runs(example_dir / "1-1.xls")
+    assert isinstance(rs, RunSettings)
+    assert rs.order == ["Data"]
+    assert rs.latest == "Data"
+    assert len(rs) == 1
+
+
+def test_single_run_block_still_readable(example_dir):
+    _sheets, rs = _runs(example_dir / "1-1.xls")
+    info = rs.block("Data")
+    assert info.test_name == "p_transfer#1@3"
+    assert info.get("Forcing Function", "Gate") == "Voltage Sweep"
+    assert info.bias_level("Drain") == -60.0
+    assert info.n_points("Gate") == 162
+
+
+def test_two_run_file_splits_into_two_blocks(example_dir):
+    _sheets, rs = _runs(example_dir / "1-3 best.xls")
+    assert rs.order == ["Append1", "Data"]
+    assert rs.latest == "Append1"
+    assert len(rs) == 2
+
+
+def test_each_block_keeps_its_own_timestamp(example_dir):
+    """블록이 섞이지 않았는지 — 두 런의 Last Executed 가 서로 달라야 한다."""
+    _sheets, rs = _runs(example_dir / "1-3 best.xls")
+    t_new = rs.block("Append1").rows["Last Executed"][0]
+    t_old = rs.block("Data").rows["Last Executed"][0]
+    assert t_new != t_old
+    assert t_new > t_old   # 문자열 비교로도 15:35:10 > 15:34:54
+
+
+def test_block_returns_empty_info_for_unknown_name(example_dir):
+    _sheets, rs = _runs(example_dir / "1-1.xls")
+    info = rs.block("Append7")
+    assert info.test_name == ""
+    assert info.get("Forcing Function", "Gate") == ""
+
+
+def test_data_sheet_names_orders_data_first(example_dir):
+    sheets, _rs = _runs(example_dir / "1-3 best.xls")
+    assert data_sheet_names(sheets) == ["Data", "Append1"]
+
+
+def test_data_sheet_names_single(example_dir):
+    sheets, _rs = _runs(example_dir / "1-1.xls")
+    assert data_sheet_names(sheets) == ["Data"]
+
+
+def test_data_sheet_names_sorts_append_numerically():
+    import pandas as pd
+    frame = pd.DataFrame({"GateV": [0.0], "GateI": [0.0], "DrainI": [0.0]})
+    sheets = {"Append10": frame, "Calc": pd.DataFrame(),
+              "Append2": frame, "Data": frame, "Settings": pd.DataFrame()}
+    assert data_sheet_names(sheets) == ["Data", "Append2", "Append10"]
+
+
+def test_every_example_has_a_latest_block(all_example_files):
+    for p in all_example_files:
+        _sheets, rs = _runs(p)
+        assert rs.latest is not None, p.name
+        assert rs.latest in rs.order, p.name
+
+
+def test_run_count_matches_data_sheet_count(all_example_files):
+    """Settings 블록 수와 데이터 시트 수가 어긋나면 런 선택 UI 가 깨진다."""
+    for p in all_example_files:
+        sheets, rs = _runs(p)
+        assert len(rs) == len(data_sheet_names(sheets)), p.name
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `python -m pytest tests/test_parsing_runs.py -v`
+Expected: FAIL — `ImportError: cannot import name 'RunSettings'`
+
+- [ ] **Step 3: 구현 — `fet_app/parsing.py` 수정**
+
+`SettingsInfo` 는 그대로 두고, 블록 컨테이너와 시트 정렬을 추가한 뒤 `parse_settings` 를 바꾼다.
+
+```python
+_BLOCK_HEADER_RE = re.compile(r"^append\s*(\d+)$", flags=re.IGNORECASE)
+_INITIAL_RE = re.compile(r"^initial\s*run$", flags=re.IGNORECASE)
+_SHEET_APPEND_RE = re.compile(r"^append\s*(\d+)$", flags=re.IGNORECASE)
+
+
+def _normalize_block_name(label: str) -> str | None:
+    """Settings 블록 헤더 -> 대응하는 데이터 시트 이름. 헤더가 아니면 None."""
+    text = str(label).strip()
+    if _INITIAL_RE.match(text):
+        return "Data"
+    m = _BLOCK_HEADER_RE.match(text)
+    if m:
+        return f"Append{int(m.group(1))}"
+    return None
+
+
+@dataclass
+class RunSettings:
+    """측정 런별 SettingsInfo. 키는 대응하는 데이터 시트 이름이다."""
+
+    blocks: dict[str, SettingsInfo] = field(default_factory=dict)
+    order: list[str] = field(default_factory=list)
+    latest: str | None = None
+
+    def block(self, name: str) -> SettingsInfo:
+        return self.blocks.get(name, SettingsInfo())
+
+    def __len__(self) -> int:
+        return len(self.order)
+
+
+def data_sheet_names(sheets: dict) -> list[str]:
+    """데이터 시트를 Data 먼저, 그 다음 AppendN 오름차순으로."""
+    def _key(name: str):
+        text = str(name).strip()
+        if text.lower() == "data":
+            return (0, 0)
+        m = _SHEET_APPEND_RE.match(text)
+        return (1, int(m.group(1))) if m else (2, 0)
+
+    names = [n for n, d in sheets.items()
+             if str(n).strip().lower() == "data" or _SHEET_APPEND_RE.match(str(n).strip())]
+    names = [n for n in names if _looks_like_data(sheets[n])]
+    return sorted((str(n).strip() for n in names), key=_key)
+```
+
+`parse_settings` 를 아래로 교체한다 (기존 행 정규화 로직은 유지하되, 구분선 다음 행의
+헤더를 만나면 새 블록으로 전환한다):
+
+```python
+def parse_settings(df: pd.DataFrame | None) -> RunSettings:
+    """Settings 시트를 런 블록별 SettingsInfo 로 나눈다.
+
+    구분선(=====) 다음 행의 첫 칸이 블록 헤더다. 'Initial Run' -> Data,
+    'Append N' -> AppendN. 헤더가 없는 파일은 전체를 Data 블록으로 담는다.
+    """
+    runs = RunSettings()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return runs
+
+    rows: list[list[str]] = []
+    cols = list(df.columns)
+    if not all(isinstance(c, (int, np.integer)) or str(c).startswith("Unnamed") for c in cols):
+        rows.append([_cell(c) for c in cols])
+    for i in range(len(df)):
+        rows.append([_cell(df.iloc[i, j]) for j in range(df.shape[1])])
+
+    def _ensure(name: str) -> SettingsInfo:
+        if name not in runs.blocks:
+            runs.blocks[name] = SettingsInfo()
+            runs.order.append(name)
+        return runs.blocks[name]
+
+    current: SettingsInfo | None = None
+    for cells in rows:
+        if not cells:
+            continue
+        joined = " ".join(cells)
+        if "=====" in joined or SEP_TOKEN in joined:
+            continue
+        label = cells[0]
+        if not label:
+            continue
+
+        block_name = _normalize_block_name(label)
+        if block_name is not None:
+            current = _ensure(block_name)
+            current.raw.append(list(cells))
+            if any(c.strip().lower() == "latest run" for c in cells[1:]):
+                runs.latest = block_name
+            continue
+
+        if current is None:                     # 헤더 없는 단일 블록 파일
+            current = _ensure("Data")
+        current.raw.append(list(cells))
+
+        values = list(cells[1:])
+        while values and not values[-1]:
+            values.pop()
+
+        if label.lower() == "test name":
+            current.test_name = values[0] if values else ""
+            continue
+        if label.lower() == "device terminal":
+            current.terminals = values
+            continue
+        current.rows.setdefault(label, values)
+
+    if runs.latest is None and runs.order:
+        runs.latest = runs.order[0]
+    return runs
+```
+
+- [ ] **Step 4: 기존 Task 3 테스트를 새 반환 타입에 맞춘다**
+
+`tests/test_parsing_loader.py` 의 `_info` 헬퍼만 고친다. **테스트 기대값은 바꾸지 않는다.**
+
+```python
+def _info(file_bytes):
+    sheets, engine = load_sheets(file_bytes)
+    runs = parse_settings(settings_frame(file_bytes, sheets, engine))
+    return runs.block(runs.latest or "Data")
+```
+
+`test_parse_settings_handles_none` 은 아래로 바꾼다:
+```python
+def test_parse_settings_handles_none():
+    runs = parse_settings(None)
+    assert len(runs) == 0
+    assert runs.latest is None
+    info = runs.block("Data")
+    assert info.test_name == ""
+    assert info.terminals == []
+    assert info.get("Forcing Function", "Gate") == ""
+```
+
+- [ ] **Step 5: 테스트 통과 확인**
+
+Run: `python -m pytest tests/test_parsing_runs.py tests/test_parsing_loader.py -v`
+Expected: 18 passed (신규 10 + 기존 8)
+
+Run: `python -m pytest -v`
+Expected: 전체 통과
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add fet_app/parsing.py tests/test_parsing_runs.py tests/test_parsing_loader.py
+git commit -m "$(cat <<'EOF'
+feat: Settings 를 측정 런 블록별로 분리
+
+1-3 best.xls 처럼 Data + Append1 두 번 측정한 파일에서 데이터와 설정이
+어긋나지 않게 한다. parse_settings 는 RunSettings 를 반환하고
+Initial Run -> Data, Append N -> AppendN 으로 시트와 짝지운다.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Task 4: 커브 종류 자동 판정
 
 **Files:**
@@ -821,12 +1122,16 @@ EOF
 - Test: `tests/test_classify.py`
 
 **Interfaces:**
-- Consumes: `parsing.SettingsInfo`, `parsing.load_sheets`
+- Consumes: `parsing.SettingsInfo`, `parsing.load_sheets`, `parsing.data_sheet_names` (Task 3b)
 - Produces:
-  - `parsing.CurveKind` — 문자열 상수 `TRANSFER = "transfer"`, `OUTPUT = "output"`
-  - `parsing.data_sheet(sheets: dict) -> pd.DataFrame` — Data 시트를 찾아 컬럼명 strip 후 반환
+  - `parsing.TRANSFER = "transfer"`, `parsing.OUTPUT = "output"`
+  - `parsing.data_sheet(sheets: dict, name: str | None = None) -> pd.DataFrame` — 컬럼명을 strip 해 반환.
+    `name` 을 주면 그 시트, 없으면 `data_sheet_names(sheets)` 의 첫 번째(= `Data`)
   - `parsing.classify_curve(data: pd.DataFrame, info: SettingsInfo, file_name: str) -> tuple[str, str]` — `(kind, reason)`. reason 은 `"forcing"` / `"structure"` / `"name"` 중 하나
   - `parsing.output_block_count(data: pd.DataFrame) -> int`
+
+**주의:** Task 3b 에서 `parse_settings` 의 반환 타입이 `RunSettings` 로 바뀌었다.
+이 태스크의 테스트는 `runs.block(runs.latest)` 로 `SettingsInfo` 를 꺼내 쓴다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -851,9 +1156,9 @@ from fet_app.parsing import (
 def _classify(path):
     b = path.read_bytes()
     sheets, engine = load_sheets(b)
+    runs = parse_settings(settings_frame(b, sheets, engine))
     data = data_sheet(sheets)
-    info = parse_settings(settings_frame(b, sheets, engine))
-    return classify_curve(data, info, path.name)
+    return classify_curve(data, runs.block(runs.latest or "Data"), path.name)
 
 
 def test_all_18_files_classified_correctly(transfer_files, output_files):
@@ -904,14 +1209,26 @@ def test_misnamed_file_still_classified_by_content(example_dir):
     """'out' 이 안 붙어도, 반대로 붙어도 내용으로 맞춘다 (명명법 불필요)."""
     b = (example_dir / "1-1 out.xls").read_bytes()
     sheets, engine = load_sheets(b)
-    info = parse_settings(settings_frame(b, sheets, engine))
-    kind, reason = classify_curve(data_sheet(sheets), info, "완전히엉뚱한이름.xls")
+    runs = parse_settings(settings_frame(b, sheets, engine))
+    kind, reason = classify_curve(data_sheet(sheets),
+                                  runs.block(runs.latest), "완전히엉뚱한이름.xls")
     assert (kind, reason) == (OUTPUT, "forcing")
 
 
 def test_data_sheet_missing_raises():
     with pytest.raises(ValueError):
         data_sheet({"Settings": pd.DataFrame()})
+
+
+def test_data_sheet_selects_named_run(example_dir):
+    """1-3 best.xls 는 Data 와 Append1 두 런이 있고 둘 다 꺼낼 수 있어야 한다."""
+    sheets, _engine = load_sheets((example_dir / "1-3 best.xls").read_bytes())
+    default = data_sheet(sheets)
+    first = data_sheet(sheets, "Data")
+    second = data_sheet(sheets, "Append1")
+    assert default.equals(first)          # 이름을 안 주면 Data
+    assert len(second) == 162
+    assert not second.equals(first)       # 서로 다른 측정
 ```
 
 - [ ] **Step 2: 실패 확인**
@@ -930,13 +1247,21 @@ OUTPUT = "output"
 _BLOCK_RE = re.compile(r"^(GateI|GateV|DrainI|DrainV)\((\d+)\)$")
 
 
-def data_sheet(sheets: dict) -> pd.DataFrame:
-    """Data 시트를 찾아 컬럼명을 strip 해 반환한다."""
-    key = next((k for k in sheets if str(k).strip().lower() == "data"), None)
+def data_sheet(sheets: dict, name: str | None = None) -> pd.DataFrame:
+    """데이터 시트 하나를 컬럼명 strip 해 반환한다.
+
+    name 을 주면 그 시트, 없으면 data_sheet_names 의 첫 번째(= Data).
+    재측정 파일(Data + Append1)에서 특정 런을 꺼낼 때 name 을 쓴다.
+    """
+    if name is None:
+        ordered = data_sheet_names(sheets)
+        if not ordered:
+            raise ValueError("데이터 시트를 찾지 못했습니다.")
+        name = ordered[0]
+
+    key = next((k for k in sheets if str(k).strip() == str(name).strip()), None)
     if key is None:
-        key = next((k for k, v in sheets.items() if _looks_like_data(v)), None)
-    if key is None:
-        raise ValueError("데이터 시트를 찾지 못했습니다.")
+        raise ValueError(f"데이터 시트 '{name}' 를 찾지 못했습니다.")
     df = sheets[key].copy()
     df.columns = [str(c).strip() for c in df.columns]
     return df
@@ -1272,13 +1597,20 @@ EOF
 - Test: `tests/test_grouping.py`
 
 **Interfaces:**
-- Consumes: `parsing.*`, `curves.*`, `params.DeviceParams`
+- Consumes: `parsing.*` (`data_sheet_names`, `data_sheet`, `parse_settings`→`RunSettings`, `classify_curve`), `curves.*`, `params.DeviceParams`
 - Produces:
-  - `grouping.ParsedFile` — 필드 `name: str`, `kind: str`, `reason: str`, `transfer: TransferCurve | None`, `output: OutputCurve | None`, `settings: SettingsInfo`, `warnings: list[str]`
+  - `grouping.MeasurementRun` — 필드 `sheet: str`("Data"/"Append1"), `label: str`(UI 표시용), `is_latest: bool`, `kind: str`, `reason: str`, `settings: SettingsInfo`, `transfer: TransferCurve | None`, `output: OutputCurve | None`
+  - `grouping.ParsedFile` — 필드 `name: str`, `runs: list[MeasurementRun]`, `warnings: list[str]`;
+    프로퍼티 `latest -> MeasurementRun | None`, `kind -> str`(latest 의 kind, 런이 없으면 `""`)
   - `grouping.parse_file(file_bytes: bytes, file_name: str) -> ParsedFile`
   - `grouping.stem_of(file_name: str) -> str`
-  - `grouping.DeviceGroup` — 필드 `name: str`, `transfer: TransferCurve | None`, `output: OutputCurve | None`, `transfer_file: str | None`, `output_file: str | None`, `params: DeviceParams`, `extra_files: list[str]`, `warnings: list[str]`; 프로퍼티 `badges -> str`
+  - `grouping.DeviceGroup` — 필드 `name: str`, `transfer_runs: list[MeasurementRun]`, `output_runs: list[MeasurementRun]`, `transfer_run_idx: int = 0`, `output_run_idx: int = 0`, `transfer_file: str | None`, `output_file: str | None`, `params: DeviceParams`, `extra_files: list[str]`, `warnings: list[str]`;
+    프로퍼티 `transfer -> TransferCurve | None`(선택된 런), `output -> OutputCurve | None`(선택된 런), `badges -> str`
   - `grouping.group_files(parsed: list[ParsedFile]) -> list[DeviceGroup]`
+
+**런 선택 규약:** `*_run_idx` 는 해당 `*_runs` 리스트의 인덱스이며, 기본값은 **Latest Run 의 인덱스**
+(`parse_file` 이 런을 Latest 먼저 오도록 정렬하므로 0). `transfer`/`output` 프로퍼티가 인덱스를
+해석하므로, 소비자(Task 8/9/11/12/13/18)는 기존과 똑같이 `g.transfer` / `g.output` 만 쓰면 된다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1304,16 +1636,51 @@ def test_parse_file_transfer(example_dir):
     p = example_dir / "1-2.xls"
     pf = parse_file(p.read_bytes(), p.name)
     assert pf.kind == "transfer"
-    assert pf.transfer is not None and pf.output is None
-    assert pf.transfer.v_ds == -60.0
+    assert len(pf.runs) == 1
+    run = pf.latest
+    assert run.transfer is not None and run.output is None
+    assert run.transfer.v_ds == -60.0
+    assert run.is_latest
 
 
 def test_parse_file_output(example_dir):
     p = example_dir / "1-2 out.xls"
     pf = parse_file(p.read_bytes(), p.name)
     assert pf.kind == "output"
-    assert pf.output is not None and pf.transfer is None
-    assert len(pf.output.blocks) == 4
+    assert len(pf.runs) == 1
+    assert pf.latest.output is not None and pf.latest.transfer is None
+    assert len(pf.latest.output.blocks) == 4
+
+
+def test_parse_file_multi_run(example_dir):
+    """1-3 best.xls 는 Data + Append1 두 런. Latest(Append1) 가 먼저 온다."""
+    p = example_dir / "1-3 best.xls"
+    pf = parse_file(p.read_bytes(), p.name)
+    assert len(pf.runs) == 2
+    assert [r.sheet for r in pf.runs] == ["Append1", "Data"]
+    assert pf.runs[0].is_latest and not pf.runs[1].is_latest
+    assert pf.latest.sheet == "Append1"
+    for r in pf.runs:
+        assert r.kind == "transfer"
+        assert r.transfer is not None
+        assert len(r.transfer.forward) == 81
+
+
+def test_multi_run_group_defaults_to_latest_and_can_switch(example_dir):
+    p = example_dir / "1-3 best.xls"
+    groups = group_files([parse_file(p.read_bytes(), p.name)])
+    g = groups[0]
+    assert g.name == "1-3"
+    assert len(g.transfer_runs) == 2
+    assert g.transfer_run_idx == 0
+    assert g.transfer is g.transfer_runs[0].transfer
+    g.transfer_run_idx = 1
+    assert g.transfer is g.transfer_runs[1].transfer
+
+
+def test_group_transfer_property_none_when_no_runs():
+    g = DeviceGroup(name="x")
+    assert g.transfer is None and g.output is None
 
 
 def test_group_all_examples(all_example_files):
@@ -1325,15 +1692,19 @@ def test_group_all_examples(all_example_files):
         assert g.output is not None, g.name
         assert g.badges == "T·O"
         assert g.extra_files == []
+    # 1-3 만 transfer 런이 2개
+    by_name = {g.name: g for g in groups}
+    assert len(by_name["1-3"].transfer_runs) == 2
+    assert len(by_name["1-1"].transfer_runs) == 1
 
 
 def test_group_records_extra_when_duplicate_kind(example_dir):
     a = example_dir / "1-1.xls"
-    b = example_dir / "1-3 best.xls"
+    b = example_dir / "1-5 best.xls"
     parsed = [parse_file(a.read_bytes(), "dev.xls"),
               parse_file(b.read_bytes(), "dev copy.xls")]
     groups = group_files(parsed)
-    # 둘 다 stem 이 다르므로 그룹 2개
+    # stem 이 'dev' 와 'dev copy' 로 달라 그룹 2개
     assert len(groups) == 2
     # 같은 stem 으로 강제하면 두 번째가 extra 로 밀린다
     parsed[1].name = "dev.xls"
@@ -1344,8 +1715,15 @@ def test_group_records_extra_when_duplicate_kind(example_dir):
 
 
 def test_badges_reflect_available_curves():
-    assert DeviceGroup(name="x", transfer=object()).badges == "T"
-    assert DeviceGroup(name="x", output=object()).badges == "O"
+    from fet_app.grouping import MeasurementRun
+    t_run = MeasurementRun(sheet="Data", label="Run", is_latest=True,
+                           kind="transfer", reason="forcing", settings=None,
+                           transfer=object(), output=None)
+    o_run = MeasurementRun(sheet="Data", label="Run", is_latest=True,
+                           kind="output", reason="forcing", settings=None,
+                           transfer=None, output=object())
+    assert DeviceGroup(name="x", transfer_runs=[t_run]).badges == "T"
+    assert DeviceGroup(name="x", output_runs=[o_run]).badges == "O"
     assert DeviceGroup(name="x").badges == "—"
 ```
 
@@ -1369,7 +1747,7 @@ from pathlib import Path
 from fet_app.curves import OutputCurve, TransferCurve, build_output, build_transfer
 from fet_app.params import DeviceParams
 from fet_app.parsing import (
-    OUTPUT, TRANSFER, SettingsInfo, classify_curve, data_sheet,
+    OUTPUT, TRANSFER, SettingsInfo, classify_curve, data_sheet, data_sheet_names,
     load_sheets, parse_settings, settings_frame,
 )
 
@@ -1379,41 +1757,89 @@ _SPLIT_RE = re.compile(r"[\s_]+")
 
 
 @dataclass
-class ParsedFile:
-    name: str
+class MeasurementRun:
+    """파일 안의 측정 한 번. 재측정 파일은 Data 와 Append1 이 각각 하나씩이다."""
+
+    sheet: str                      # "Data" / "Append1"
+    label: str                      # UI 표시용 — "Latest Run" / "Run 1"
+    is_latest: bool
     kind: str
     reason: str
-    settings: SettingsInfo
+    settings: SettingsInfo | None = None
     transfer: TransferCurve | None = None
     output: OutputCurve | None = None
+
+
+@dataclass
+class ParsedFile:
+    name: str
+    runs: list[MeasurementRun] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def latest(self) -> MeasurementRun | None:
+        return self.runs[0] if self.runs else None
+
+    @property
+    def kind(self) -> str:
+        return self.runs[0].kind if self.runs else ""
 
 
 def parse_file(file_bytes: bytes, file_name: str) -> ParsedFile:
+    """파일의 모든 측정 런을 읽는다. 반환 리스트는 Latest Run 이 맨 앞."""
     sheets, engine = load_sheets(file_bytes)
-    data = data_sheet(sheets)
-    info = parse_settings(settings_frame(file_bytes, sheets, engine))
-    kind, reason = classify_curve(data, info, file_name)
+    run_settings = parse_settings(settings_frame(file_bytes, sheets, engine))
+    sheet_names = data_sheet_names(sheets)
+    if not sheet_names:
+        raise ValueError("데이터 시트를 찾지 못했습니다.")
 
     warns: list[str] = []
-    if reason == "name":
+    if len(run_settings) and len(run_settings) != len(sheet_names):
         warns.append(
-            "Settings 와 열 구조로 커브 종류를 가리지 못해 파일명으로 판정했습니다. "
-            "결과가 틀렸다면 소자 패널에서 종류를 바꿔주세요."
+            f"Settings 블록 {len(run_settings)}개와 데이터 시트 {len(sheet_names)}개가 "
+            "맞지 않습니다. 시트 이름으로 최선을 다해 짝지었습니다."
         )
 
-    transfer = output = None
-    if kind == TRANSFER:
-        transfer = build_transfer(data, info)
-        if transfer.v_ds is None:
-            warns.append("Settings 에서 V_DS 를 읽지 못했습니다. μ_sat 의 포화 조건 검사를 건너뜁니다.")
-    else:
-        output = build_output(data, info)
-        if not output.blocks:
-            warns.append("output 블록을 하나도 만들지 못했습니다.")
+    runs: list[MeasurementRun] = []
+    for sheet in sheet_names:
+        data = data_sheet(sheets, sheet)
+        info = run_settings.block(sheet)
+        kind, reason = classify_curve(data, info, file_name)
+        if reason == "name":
+            warns.append(
+                f"'{sheet}' 의 커브 종류를 Settings·열 구조로 가리지 못해 파일명으로 "
+                "판정했습니다. 틀렸다면 소자 패널에서 바꿔주세요."
+            )
 
-    return ParsedFile(name=file_name, kind=kind, reason=reason, settings=info,
-                      transfer=transfer, output=output, warnings=warns)
+        transfer = output = None
+        if kind == TRANSFER:
+            transfer = build_transfer(data, info)
+            if transfer.v_ds is None:
+                warns.append(
+                    f"'{sheet}' 의 Settings 에서 V_DS 를 읽지 못했습니다. "
+                    "μ_sat 의 포화 조건 검사를 건너뜁니다."
+                )
+        else:
+            output = build_output(data, info)
+            if not output.blocks:
+                warns.append(f"'{sheet}' 에서 output 블록을 하나도 만들지 못했습니다.")
+
+        is_latest = (run_settings.latest == sheet) if len(run_settings) else (sheet == sheet_names[0])
+        runs.append(MeasurementRun(
+            sheet=sheet, label="", is_latest=is_latest, kind=kind, reason=reason,
+            settings=info, transfer=transfer, output=output,
+        ))
+
+    # Latest 를 맨 앞으로. 나머지는 시트 순서 유지.
+    runs.sort(key=lambda r: (not r.is_latest,))
+    single = len(runs) == 1
+    for i, r in enumerate(runs):
+        if single:
+            r.label = r.sheet
+        else:
+            r.label = f"{r.sheet} (Latest)" if r.is_latest else r.sheet
+
+    return ParsedFile(name=file_name, runs=runs, warnings=warns)
 
 
 def stem_of(file_name: str) -> str:
@@ -1427,14 +1853,33 @@ def stem_of(file_name: str) -> str:
 
 @dataclass
 class DeviceGroup:
+    """소자 하나. 커브 종류마다 측정 런 목록과 선택 인덱스를 갖는다."""
+
     name: str
-    transfer: TransferCurve | None = None
-    output: OutputCurve | None = None
+    transfer_runs: list[MeasurementRun] = field(default_factory=list)
+    output_runs: list[MeasurementRun] = field(default_factory=list)
+    transfer_run_idx: int = 0
+    output_run_idx: int = 0
     transfer_file: str | None = None
     output_file: str | None = None
     params: DeviceParams = field(default_factory=DeviceParams)
     extra_files: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def _pick(runs: list[MeasurementRun], idx: int, attr: str):
+        if not runs:
+            return None
+        i = idx if 0 <= idx < len(runs) else 0
+        return getattr(runs[i], attr)
+
+    @property
+    def transfer(self) -> TransferCurve | None:
+        return self._pick(self.transfer_runs, self.transfer_run_idx, "transfer")
+
+    @property
+    def output(self) -> OutputCurve | None:
+        return self._pick(self.output_runs, self.output_run_idx, "output")
 
     @property
     def badges(self) -> str:
@@ -1447,7 +1892,11 @@ class DeviceGroup:
 
 
 def group_files(parsed: list[ParsedFile]) -> list[DeviceGroup]:
-    """파일명 stem 으로 묶는다. 같은 종류가 두 번 오면 첫 번째만 쓰고 나머지는 extra."""
+    """파일명 stem 으로 묶는다.
+
+    한 파일의 여러 측정 런은 모두 보존한다(재측정 파일). 같은 종류의 파일이
+    두 개 오면 첫 번째 파일의 런만 쓰고 나머지 파일은 extra 로 밀어둔다.
+    """
     groups: dict[str, DeviceGroup] = {}
     order: list[str] = []
 
@@ -1459,19 +1908,22 @@ def group_files(parsed: list[ParsedFile]) -> list[DeviceGroup]:
         g = groups[key]
         g.warnings.extend(pf.warnings)
 
-        if pf.kind == TRANSFER:
-            if g.transfer is None:
-                g.transfer, g.transfer_file = pf.transfer, pf.name
+        t_runs = [r for r in pf.runs if r.kind == TRANSFER]
+        o_runs = [r for r in pf.runs if r.kind == OUTPUT]
+
+        if t_runs:
+            if not g.transfer_runs:
+                g.transfer_runs, g.transfer_file = t_runs, pf.name
             else:
                 g.extra_files.append(pf.name)
                 g.warnings.append(
                     f"'{pf.name}' 은 transfer 가 이미 있어 사용하지 않았습니다. "
                     "소자 패널에서 교체할 수 있습니다."
                 )
-        elif pf.kind == OUTPUT:
-            if g.output is None:
-                g.output, g.output_file = pf.output, pf.name
-            else:
+        if o_runs:
+            if not g.output_runs:
+                g.output_runs, g.output_file = o_runs, pf.name
+            elif pf.name not in g.extra_files:
                 g.extra_files.append(pf.name)
                 g.warnings.append(
                     f"'{pf.name}' 은 output 이 이미 있어 사용하지 않았습니다. "
@@ -3567,6 +4019,14 @@ def test_manual_documents_classification_and_grouping():
     assert "그룹" in text
 
 
+def test_manual_documents_multi_run_handling():
+    """재측정 파일 처리 규칙 — 사용자가 대조할 수 있어야 한다."""
+    text = load_manual()
+    assert "Append1" in text
+    assert "Latest Run" in text
+    assert "Initial Run" in text
+
+
 def test_manual_has_no_placeholders():
     text = load_manual()
     assert not re.search(r"\bTBD\b|\bTODO\b", text)
@@ -3636,10 +4096,23 @@ Keithley 4200-SCS / KTEI 가 내보낸 `.xls` (구형 OLE2) 및 `.xlsx`.
 뒤집히는 지점을 찾는다. (turning point 에서 같은 전압이 두 번 나올 수 있어
 부호 변화만으로는 실패하는 경우가 있다.)
 
-### 1.4 소자 자동 그룹핑
+### 1.4 한 파일에 측정이 여러 번 있을 때
+같은 조건으로 다시 측정하면 KTEI 는 데이터 시트를 `Data`, `Append1`, `Append2` … 로 늘리고
+`Settings` 에도 런마다 블록을 하나씩 붙인다. 블록 헤더가 `Initial Run` 이면 `Data` 시트,
+`Append N` 이면 `AppendN` 시트에 대응하며, 헤더 옆에 `Latest Run` 표시가 붙은 것이 최신 측정이다.
+
+앱은 **모든 런을 읽어 보존**하고, 소자 패널의 "측정 런" 드롭다운에서 고를 수 있게 한다.
+기본 선택은 Latest Run 이다. 각 런은 자기 블록의 설정(V_DS, dual sweep 여부 등)을 쓰므로
+데이터와 설정이 어긋나지 않는다.
+
+예: `1-3 best.xls` 는 `Data`(15:34:54, Initial Run) 와 `Append1`(15:35:10, Latest Run)
+두 번의 transfer 측정을 담고 있고, 기본으로 `Append1` 이 분석된다.
+
+### 1.5 소자 자동 그룹핑
 파일명에서 확장자와 접미 토큰 `out` / `output` / `transfer` / `tr` / `best` 를 떼어낸
 나머지가 소자 이름이다. 예: `1-3 best.xls` 와 `1-3 out.xls` → 소자 `1-3`.
-같은 종류가 두 개 들어오면 첫 번째만 쓰고 나머지는 미사용으로 보관한다.
+같은 종류의 **파일**이 두 개 들어오면 첫 번째 파일만 쓰고 나머지는 미사용으로 보관한다.
+(한 파일 안의 여러 런은 이와 별개로 모두 보존한다 — §1.4)
 
 ## 2. 소자 파라미터
 
@@ -4023,14 +4496,14 @@ def add_files(app: AppState, files: list[tuple[str, bytes]]) -> list[str]:
         if old is None:
             existing.append(g)
             continue
-        if old.transfer is None and g.transfer is not None:
-            old.transfer, old.transfer_file = g.transfer, g.transfer_file
-        elif g.transfer is not None:
-            old.extra_files.extend([g.transfer_file] if g.transfer_file else [])
-        if old.output is None and g.output is not None:
-            old.output, old.output_file = g.output, g.output_file
-        elif g.output is not None:
-            old.extra_files.extend([g.output_file] if g.output_file else [])
+        if not old.transfer_runs and g.transfer_runs:
+            old.transfer_runs, old.transfer_file = g.transfer_runs, g.transfer_file
+        elif g.transfer_runs and g.transfer_file:
+            old.extra_files.append(g.transfer_file)
+        if not old.output_runs and g.output_runs:
+            old.output_runs, old.output_file = g.output_runs, g.output_file
+        elif g.output_runs and g.output_file and g.output_file not in old.extra_files:
+            old.extra_files.append(g.output_file)
         old.warnings.extend(g.warnings)
 
     app.devices = existing
@@ -4534,6 +5007,18 @@ def render(app) -> None:
         with st.expander(f"⚠ 경고 {len(g.warnings)}건"):
             for w in g.warnings:
                 st.caption(w)
+
+    # 재측정 파일(Data + Append1)이면 어느 런을 분석할지 고른다. 기본은 Latest.
+    if len(g.transfer_runs) > 1:
+        labels = [r.label for r in g.transfer_runs]
+        g.transfer_run_idx = labels.index(st.selectbox(
+            "Transfer 측정 런", labels,
+            index=min(g.transfer_run_idx, len(labels) - 1), key=f"trun_{g.name}"))
+    if len(g.output_runs) > 1:
+        labels = [r.label for r in g.output_runs]
+        g.output_run_idx = labels.index(st.selectbox(
+            "Output 측정 런", labels,
+            index=min(g.output_run_idx, len(labels) - 1), key=f"orun_{g.name}"))
 
     p = g.params
     c1, c2 = st.columns(2)
@@ -5085,6 +5570,30 @@ def test_nine_devices_each_with_both_curves(app):
         assert g.output is not None, g.name
 
 
+def test_only_1_3_has_a_second_transfer_run(app):
+    """1-3 best.xls 만 Data + Append1 두 런. 기본 선택은 Latest(Append1)."""
+    counts = {g.name: len(g.transfer_runs) for g in app.devices}
+    assert counts["1-3"] == 2
+    assert all(n == 1 for name, n in counts.items() if name != "1-3")
+    g = next(g for g in app.devices if g.name == "1-3")
+    assert g.transfer_runs[g.transfer_run_idx].is_latest
+
+
+def test_switching_run_changes_metrics(app):
+    """런을 바꾸면 실제로 다른 데이터가 쓰인다 — 프로퍼티가 인덱스를 무시하지 않는지."""
+    g = next(g for g in app.devices if g.name == "1-3")
+    original = g.transfer_run_idx
+    try:
+        g.transfer_run_idx = 0
+        a, _ = compute(app, g)
+        g.transfer_run_idx = 1
+        b, _ = compute(app, g)
+        assert a.v_th is not None and b.v_th is not None
+        assert g.transfer_runs[0].transfer is not g.transfer_runs[1].transfer
+    finally:
+        g.transfer_run_idx = original
+
+
 def test_every_device_yields_finite_metrics(app):
     for g in app.devices:
         tm, od = compute(app, g)
@@ -5268,6 +5777,7 @@ PY
 | 스펙 절 | 담당 태스크 |
 |---|---|
 | §1 입력 데이터 형식·파싱 함정 | 3, 5 |
+| §1 다중 측정 런 (플랜 작성 후 추가) | 3b, 6, 17 |
 | §2 커브 종류 3단 폴백 | 4 |
 | §3.1 C_ox | 2 |
 | §3.2 V_th, μ_sat | 8 |

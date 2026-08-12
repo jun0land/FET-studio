@@ -69,7 +69,32 @@ Keithley 4200-SCS / KTEI V9.1 이 내보낸 구형 OLE2 `.xls`.
   61 점 스윕 + dual sweep 역방향 61 점 = 122 점.
 - 블록 개수(4)는 파일마다 다를 수 있으므로 **하드코딩 금지**. 열 개수 ÷ 4 로 산출.
 
-### 1.3 알려진 파싱 함정
+### 1.3 다중 측정 런 (2026-08-12 추가 — 최초 조사 시 놓친 것)
+
+`Example/1-3 best.xls` 는 시트가 `Data, Calc, Settings, Append1` 이고 **transfer 측정이 두 번**
+들어 있다 (`Data` 162행, `Append1` 162행). `Settings` 도 블록이 두 개다:
+
+```
+==================================
+Append 1        Latest Run          <- 15:35:10, 데이터는 Append1
+==================================
+...
+==================================
+Initial Run                         <- 15:34:54, 데이터는 Data
+==================================
+```
+
+나머지 17개 파일은 단일 런이다.
+
+**결정(사용자 확정): 모든 런을 읽어 보존하고 사용자가 고른다. 기본은 Latest Run.**
+
+- Settings 블록 헤더를 시트 이름으로 정규화한다: `Initial Run` → `Data`, `Append N` → `AppendN`
+- 각 런은 **자기 블록의 설정**(V_DS, dual sweep 여부, Number of Points)을 쓴다.
+  블록을 합치면 데이터와 설정이 어긋난다.
+- 소자 패널에 "측정 런" 드롭다운이 생긴다. 런이 하나뿐이면 표시하지 않는다.
+- 이 규칙은 `MANUAL.md` §1.4 에 문서화한다.
+
+### 1.4 알려진 파싱 함정
 
 - `xlrd` 가 stdout 으로 OLE2 경고를 뱉는다 (`SSCS size is 0 but SSAT size is non-zero`,
   `file size not 512 + multiple of sector size`). 전부 무해하므로 **사용자에게 노출하지 않는다**.
