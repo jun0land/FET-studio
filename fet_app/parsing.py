@@ -135,40 +135,110 @@ class SettingsInfo:
             return None
 
 
-def parse_settings(df: pd.DataFrame | None) -> SettingsInfo:
-    info = SettingsInfo()
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return info
+_BLOCK_HEADER_RE = re.compile(r"^append\s*(\d+)$", flags=re.IGNORECASE)
+_INITIAL_RE = re.compile(r"^initial\s*run$", flags=re.IGNORECASE)
+_SHEET_APPEND_RE = re.compile(r"^append\s*(\d+)$", flags=re.IGNORECASE)
 
-    # header=None 으로 못 읽었으면 컬럼명이 첫 행이므로 복원한다.
+
+def _normalize_block_name(label: str) -> str | None:
+    """Settings 블록 헤더 -> 대응하는 데이터 시트 이름. 헤더가 아니면 None."""
+    text = str(label).strip()
+    if _INITIAL_RE.match(text):
+        return "Data"
+    m = _BLOCK_HEADER_RE.match(text)
+    if m:
+        return f"Append{int(m.group(1))}"
+    return None
+
+
+@dataclass
+class RunSettings:
+    """측정 런별 SettingsInfo. 키는 대응하는 데이터 시트 이름이다."""
+
+    blocks: dict[str, SettingsInfo] = field(default_factory=dict)
+    order: list[str] = field(default_factory=list)
+    latest: str | None = None
+
+    def block(self, name: str) -> SettingsInfo:
+        return self.blocks.get(name, SettingsInfo())
+
+    def __len__(self) -> int:
+        return len(self.order)
+
+
+def data_sheet_names(sheets: dict) -> list[str]:
+    """데이터 시트를 Data 먼저, 그 다음 AppendN 오름차순으로."""
+    def _key(name: str):
+        text = str(name).strip()
+        if text.lower() == "data":
+            return (0, 0)
+        m = _SHEET_APPEND_RE.match(text)
+        return (1, int(m.group(1))) if m else (2, 0)
+
+    names = [n for n, d in sheets.items()
+             if str(n).strip().lower() == "data" or _SHEET_APPEND_RE.match(str(n).strip())]
+    names = [n for n in names if _looks_like_data(sheets[n])]
+    return sorted((str(n).strip() for n in names), key=_key)
+
+
+def parse_settings(df: pd.DataFrame | None) -> RunSettings:
+    """Settings 시트를 런 블록별 SettingsInfo 로 나눈다.
+
+    구분선(=====) 다음 행의 첫 칸이 블록 헤더다. 'Initial Run' -> Data,
+    'Append N' -> AppendN. 헤더가 없는 파일은 전체를 Data 블록으로 담는다.
+    """
+    runs = RunSettings()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return runs
+
     rows: list[list[str]] = []
     cols = list(df.columns)
     if not all(isinstance(c, (int, np.integer)) or str(c).startswith("Unnamed") for c in cols):
         rows.append([_cell(c) for c in cols])
     for i in range(len(df)):
         rows.append([_cell(df.iloc[i, j]) for j in range(df.shape[1])])
-    info.raw = rows
 
+    def _ensure(name: str) -> SettingsInfo:
+        if name not in runs.blocks:
+            runs.blocks[name] = SettingsInfo()
+            runs.order.append(name)
+        return runs.blocks[name]
+
+    current: SettingsInfo | None = None
     for cells in rows:
         if not cells:
             continue
         joined = " ".join(cells)
-        if "=====" in joined or SEP_TOKEN in joined:
+        if "=====" in joined:
             continue
         label = cells[0]
         if not label:
             continue
-        values = [c for c in cells[1:]]
-        # 뒤쪽 빈 칸 제거
+
+        block_name = _normalize_block_name(label)
+        if block_name is not None:
+            current = _ensure(block_name)
+            current.raw.append(list(cells))
+            if any(c.strip().lower() == "latest run" for c in cells[1:]):
+                runs.latest = block_name
+            continue
+
+        if current is None:                     # 헤더 없는 단일 블록 파일
+            current = _ensure("Data")
+        current.raw.append(list(cells))
+
+        values = list(cells[1:])
         while values and not values[-1]:
             values.pop()
 
         if label.lower() == "test name":
-            info.test_name = values[0] if values else ""
+            current.test_name = values[0] if values else ""
             continue
         if label.lower() == "device terminal":
-            info.terminals = values
+            current.terminals = values
             continue
-        info.rows.setdefault(label, values)
+        current.rows.setdefault(label, values)
 
-    return info
+    if runs.latest is None and runs.order:
+        runs.latest = runs.order[0]
+    return runs

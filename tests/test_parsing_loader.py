@@ -5,7 +5,8 @@ from fet_app.parsing import load_sheets, parse_settings, settings_frame
 
 def _info(file_bytes):
     sheets, engine = load_sheets(file_bytes)
-    return parse_settings(settings_frame(file_bytes, sheets, engine))
+    runs = parse_settings(settings_frame(file_bytes, sheets, engine))
+    return runs.block(runs.latest or "Data")
 
 
 def test_load_sheets_returns_three_sheets(sample_transfer_bytes):
@@ -60,7 +61,10 @@ def test_settings_output(sample_output_bytes):
 
 
 def test_parse_settings_handles_none():
-    info = parse_settings(None)
+    runs = parse_settings(None)
+    assert len(runs) == 0
+    assert runs.latest is None
+    info = runs.block("Data")
     assert info.test_name == ""
     assert info.terminals == []
     assert info.get("Forcing Function", "Gate") == ""
