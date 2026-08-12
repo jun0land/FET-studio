@@ -4,3 +4,4 @@
 venv/
 .streamlit/secrets.toml
 .DS_Store
+.superpowers/
