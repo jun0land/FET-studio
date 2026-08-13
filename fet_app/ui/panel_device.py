@@ -1,4 +1,4 @@
-"""좌측 패널 — 소자 파라미터. 비우면 전역 기본값을 상속한다."""
+"""소자 파라미터 (좌측 편집 패널의 '정보' 탭). 비우면 전역 기본값을 상속한다."""
 
 from __future__ import annotations
 
@@ -7,18 +7,10 @@ import streamlit as st
 from fet_app.constants import DIELECTRIC_PRESETS
 from fet_app.params import DeviceParams
 
-# classify_curve 의 reason("forcing"/"structure"/"name") -> 사람이 읽을 라벨.
-# fet_app/parsing.py classify_curve 의 판정 순서(스펙 §2, MANUAL.md §1.2)와 맞춘다.
-REASON_LABELS = {
-    "forcing": "Settings 의 Forcing Function",
-    "structure": "Data 열 구조",
-    "name": "파일명",
-}
-
 
 def _render_source_picker(g, sources_attr: str, file_attr: str, run_attr: str,
                           select_fn, label: str) -> None:
-    """커브 종류 하나(transfer/output)의 활성 파일 선택 + 런 선택 + 판정 근거."""
+    """커브 종류 하나(transfer/output)의 활성 파일 선택 + 런 선택."""
     sources: dict = getattr(g, sources_attr)
     active_file = getattr(g, file_attr)
 
@@ -45,15 +37,46 @@ def _render_source_picker(g, sources_attr: str, file_attr: str, run_attr: str,
             index=min(idx, len(labels) - 1), key=f"{run_attr}_{g.name}"))
         setattr(g, run_attr, idx)
 
-    idx = getattr(g, run_attr)
-    run = runs[idx] if runs and 0 <= idx < len(runs) else (runs[0] if runs else None)
-    if run is not None:
-        basis = REASON_LABELS.get(run.reason, run.reason)
-        text = f"{label} 판정 근거: {basis} · '{active_file}'"
-        if run.reason == "name":
-            st.warning(text, icon="⚠")
+
+def render_global(app) -> None:
+    """전역 기본값 — 좌측 패널 최상단, 탭보다 위에 항상 보이게 둔다.
+
+    이 입력칸 자체가 곧 기본값이다. 처음 렌더될 때부터 W 1000 / L 50 /
+    SiO2 3.9 / d 300 nm 로 미리 채워지므로 별도의 '기본값' 창이 따로
+    필요 없다 — 예전엔 여기와 별개로 숨겨진 expander 가 하나 더 있어서
+    같은 값을 두 군데서 편집할 수 있었다.
+    """
+    st.markdown("**전역 기본값**")
+    p = app.global_params
+
+    c1, c2 = st.columns(2)
+    with c1:
+        p.w_um = st.number_input("W (µm)", min_value=0.0, value=float(p.w_um or 1000.0),
+                                 step=10.0, key="g_w")
+    with c2:
+        p.l_um = st.number_input("L (µm)", min_value=0.0, value=float(p.l_um or 50.0),
+                                 step=1.0, key="g_l")
+
+    names = list(DIELECTRIC_PRESETS) + ["Custom"]
+    current = next((n for n, v in DIELECTRIC_PRESETS.items() if v == p.eps_r), None)
+    idx = names.index(current) if current else 0  # 기본 SiO2
+
+    c3, c4 = st.columns(2)
+    with c3:
+        choice = st.selectbox("유전체", names, index=idx, key="g_diel")
+    with c4:
+        if choice == "Custom":
+            p.eps_r = st.number_input("ε_r", min_value=0.0,
+                                      value=float(p.eps_r or 3.9), step=0.1, key="g_eps")
         else:
-            st.caption(text)
+            # Custom 이 아니어도 선택한 물질의 값을 항상 여기 보여준다(공부용).
+            # 값 자체는 프리셋이 정하므로 편집은 막는다.
+            p.eps_r = DIELECTRIC_PRESETS[choice]
+            st.number_input("ε_r", value=float(p.eps_r), step=0.1,
+                            key="g_eps_display", disabled=True)
+
+    p.d_nm = st.number_input("두께 (nm)", min_value=0.0, value=float(p.d_nm or 300.0),
+                             step=10.0, key="g_d")
 
 
 def render(app) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from fet_app.constants import DEFAULT_THRESHOLDS, DIELECTRIC_PRESETS
+from fet_app.constants import DEFAULT_THRESHOLDS
 
 
 def filter_devices(devices, query: str):
@@ -46,19 +46,8 @@ def render(app) -> None:
                 st.rerun()
 
     st.divider()
-    with st.expander("전역 기본값", expanded=False):
-        p = app.global_params
-        p.w_um = st.number_input("W (µm)", min_value=0.0, value=float(p.w_um or 1000.0),
-                                 step=10.0, key="g_w")
-        p.l_um = st.number_input("L (µm)", min_value=0.0, value=float(p.l_um or 50.0),
-                                 step=1.0, key="g_l")
-        name = st.selectbox("유전체", list(DIELECTRIC_PRESETS) + ["Custom"], key="g_diel")
-        p.eps_r = (st.number_input("ε_r", min_value=0.0, value=float(p.eps_r or 3.9),
-                                   step=0.1, key="g_eps")
-                   if name == "Custom" else DIELECTRIC_PRESETS[name])
-        p.d_nm = st.number_input("두께 (nm)", min_value=0.0, value=float(p.d_nm or 300.0),
-                                 step=10.0, key="g_d")
-
+    # 전역 기본값(W/L/유전체/d)은 좌측 편집 패널 최상단으로 옮겼다 — 같은
+    # 값을 편집하는 창이 두 군데 있을 이유가 없었다.
     with st.expander("진단 임계값", expanded=False):
         t = app.thresholds
         t["zero_offset"] = st.number_input(
