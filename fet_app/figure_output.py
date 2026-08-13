@@ -71,13 +71,14 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
     block_w = 2 * INSET_PAD_X + INSET_SWATCH_W + INSET_GAP + text_w
     left = x if xanchor == "left" else (x - block_w / 2 if xanchor == "center" else x - block_w)
 
-    # 텍스트 폭은 추정값이라 늘 실제보다 넉넉하다. 오른쪽 정렬 인셋에서 블록을
-    # 통째로 왼쪽으로 밀면 그 오차가 텍스트 우측 여백으로 그대로 드러난다.
-    # 그래서 오른쪽 정렬일 때는 텍스트를 오른쪽 끝에 붙이고, 스와치를 그 왼쪽에
-    # 놓는다 — 추정 오차가 스와치 왼쪽(테두리가 없으면 안 보이는 쪽)으로 간다.
+    # 라벨은 길이가 제각각이라 오른쪽 끝에 붙이면 왼쪽이 들쭉날쭉해진다
+    # ('V_G = 0 V' 의 V 만 안쪽으로 밀려 보인다). 그래서 인셋이 오른쪽 정렬이어도
+    # 라벨끼리는 왼쪽을 맞춘다: 가장 긴 라벨의 오른쪽 끝이 인셋 우측에 닿도록
+    # 시작 x 를 잡고, 모든 라벨을 거기서 왼쪽 정렬한다. 스와치는 그 바로 왼쪽에
+    # INSET_GAP 만큼 띄워 붙이므로 스와치-글자 간격이 항목마다 일정하다.
     right_aligned = xanchor == "right"
-    text_right = x - INSET_PAD_X            # 오른쪽 정렬일 때 텍스트 오른쪽 끝
-    swatch_x1 = text_right - text_w - INSET_GAP
+    text_left = x - INSET_PAD_X - text_w
+    swatch_x1 = text_left - INSET_GAP
 
     if inset.get("border") or inset.get("bg_opacity"):
         fig.add_shape(
@@ -95,7 +96,7 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
         if right_aligned:
             x1 = swatch_x1
             x0 = x1 - INSET_SWATCH_W
-            text_x, text_anchor = text_right, "right"
+            text_x, text_anchor = text_left, "left"
         else:
             x0 = left + INSET_PAD_X
             x1 = x0 + INSET_SWATCH_W
