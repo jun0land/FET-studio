@@ -23,20 +23,27 @@ def device_flags(app, g) -> list[str]:
     return flags
 
 
+DEVICE_LIST_HEIGHT = 460  # px — 아래 컨테이너의 높이. 정수 px 만 받는다 (vh 불가)
+
+
 def render(app) -> None:
     st.caption("소자")
+    # 검색창은 컨테이너 밖에 둬야 리스트가 스크롤돼도 고정된 채 남는다.
     app.search = st.text_input("검색", value=app.search, key="device_search",
                                placeholder="이름 검색", label_visibility="collapsed")
 
-    st.markdown("<div class='fet-device-list'>", unsafe_allow_html=True)
-    for g in filter_devices(app.devices, app.search):
-        mark = "⚠ " if "warning" in device_flags(app, g) else ""
-        label = f"{mark}{g.name}  ·{g.badges}"
-        if st.button(label, key=f"dev_{g.name}", use_container_width=True,
-                     type="primary" if g.name == app.selected else "secondary"):
-            app.selected = g.name
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+    # st.markdown 으로 연 <div> 는 각자 독립 컨테이너에 렌더되어 바로 다음
+    # st.markdown 이 닫아버린다 — 그 사이의 st.button 들은 자식이 아니라
+    # 형제로 끝나서 CSS max-height/overflow 를 건 래퍼가 실제로는 아무것도
+    # 감싸지 못했다. 아래 컨테이너는 실제로 스크롤되는 영역을 만든다.
+    with st.container(height=DEVICE_LIST_HEIGHT, border=False):
+        for g in filter_devices(app.devices, app.search):
+            mark = "⚠ " if "warning" in device_flags(app, g) else ""
+            label = f"{mark}{g.name}  ·{g.badges}"
+            if st.button(label, key=f"dev_{g.name}", use_container_width=True,
+                         type="primary" if g.name == app.selected else "secondary"):
+                app.selected = g.name
+                st.rerun()
 
     st.divider()
     with st.expander("전역 기본값", expanded=False):

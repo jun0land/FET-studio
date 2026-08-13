@@ -1,7 +1,8 @@
 """전역 테마: CSS 임베드 (스펙 §6). 폰트를 base64 로 인라인하고, 리퀴드 글래스
 패널/버튼/입력 스타일을 적용한다. 반응형 3열 레이아웃은 ``RESPONSIVE_CSS`` 가
 맡는다 — ``fet_app.ui.layout`` 이 만드는 3열 블록을 ``:has(.fet-shell-anchor)``
-로 찾아 폭을 건다 (스펙 §6.2, §6.1).
+로, ``fet_app.ui.summary`` 가 만드는 그래프 2열 블록을
+``:has(.fet-graphs-anchor)`` 로 찾아 폭/스택 방향을 건다 (스펙 §6.2, §6.1).
 
 포팅 출처: ``photodetector-app/pd_app/theme.py``. 그 앱의 제목·매뉴얼 문구,
 배경/로고 이미지, zoom 및 ResizeObserver 뷰포트 바인딩 JS, 팔레트 피커 전용
@@ -161,12 +162,17 @@ h1, h2, h3, h4, p, label, span {{ text-shadow: none; }}
 # 3열 컬럼은 layout.py 가 st.columns 로 만들고, 여기서 폭을 덮어쓴다.
 RESPONSIVE_CSS = """
 <style>
-/* 본문 최대 폭: 27" QHD 에서 약 3/4 만 쓰게 해 좌우 시선 이동을 억제한다 */
+/* 본문 최대 폭: 27" QHD 에서 약 3/4 만 쓰게 해 좌우 시선 이동을 억제한다.
+   실제 Streamlit 1.61 DOM 은 <section class="stMain" data-testid="stMain">
+   안에 <div class="stMainBlockContainer block-container"> 이다. 구버전
+   셀렉터는 이 클래스가 아닌 다른(존재한 적 없는) main 클래스를 직계 자식
+   결합자로 찾고 있었다 — 아무 것도 매치하지 못해 이 캡이 어떤 화면에서도
+   적용된 적이 없었다. */
 @media (min-width: 1500px) {
-  section.main > div.block-container { max-width: 1760px; margin: 0 auto; }
+  [data-testid="stMain"] .stMainBlockContainer { max-width: 1760px; margin: 0 auto; }
 }
 @media (max-width: 1499px) {
-  section.main > div.block-container { max-width: 100%; }
+  [data-testid="stMain"] .stMainBlockContainer { max-width: 100%; }
 }
 
 /* 3열: 편집 패널 / 그래프(신축) / 소자 리스트.
@@ -185,13 +191,23 @@ div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="s
   min-width: 180px;
 }
 
-/* 900~1150px: 소자 리스트 열을 접는다 (layout.py 가 같은 폭에서 사이드바로 옮겨 렌더한다) */
+/* 1150px 미만: 3열을 유지하기엔 좁다. 소자 리스트(3번째 컬럼)를 숨기던
+   이전 규칙은 layout.py 가 같은 폭에서 사이드바로 옮겨 그린다고 주장했지만
+   그런 코드는 없다 (fet_app/ 어디에도 sidebar 렌더링이 없다) — 그래서 소자
+   전환/검색/전역 W·L·ε_r·d/진단 임계값/전체 요약 버튼/내보내기 패널 전체가
+   이 폭 아래에서 통째로 사라졌다. 숨기는 대신 flex-wrap 으로 3번째 컬럼만
+   다음 줄로 떨어뜨려 세로로 쌓는다: 스크롤해서 도달하는 편이 아예 닿지 않는
+   것보다 낫다. 편집 패널(1열)은 여전히 그래프(2열)와 한 줄을 공유하므로
+   고정 폭 오버라이드가 계속 의미가 있어 남긴다. */
 @media (max-width: 1149px) {
-  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(3) {
-    display: none;
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) {
+    flex-wrap: wrap;
   }
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(1) {
     flex: 0 0 280px; min-width: 280px;
+  }
+  div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(3) {
+    flex: 1 1 100%; min-width: 0;
   }
 }
 
@@ -202,10 +218,10 @@ div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="s
     flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important;
   }
   div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor) { flex-direction: column; }
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor) > div[data-testid="stColumn"] {
+    flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important;
+  }
 }
-
-/* 소자 리스트는 독립 스크롤 */
-.fet-device-list { max-height: 62vh; overflow-y: auto; overflow-x: hidden; }
 </style>
 """
 

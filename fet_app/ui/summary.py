@@ -16,6 +16,10 @@ from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import output_diagnostics, transfer_metrics
 from fet_app.ui.panel_fit import fit_range_for
 
+# theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. layout.SHELL_ANCHOR 와 같은 패턴으로
+# 그래프 2열 블록의 첫 컬럼에 심어 900px 미만에서 세로 스택되도록 한다.
+GRAPHS_ANCHOR = "<div class='fet-graphs-anchor'></div>"
+
 
 def format_metric(value, kind: str) -> str:
     if value is None:
@@ -141,6 +145,9 @@ def render_device_view(app, k: float) -> None:
     if has_t and has_o:
         cols = st.columns(2, gap="medium")
         with cols[0]:
+            # 이 마커가 있어야 RESPONSIVE_CSS 가 이 그래프 2열 블록을 찾아
+            # 900px 미만에서 세로로 쌓는다.
+            st.markdown(GRAPHS_ANCHOR, unsafe_allow_html=True)
             st.plotly_chart(transfer_figure(g.transfer, tm, _transfer_settings(app), k),
                             use_container_width=False, key=f"tf_{g.name}")
             _metric_card(tm)
