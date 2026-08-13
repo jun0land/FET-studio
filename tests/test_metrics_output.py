@@ -123,14 +123,32 @@ def test_worst_aggregates_across_blocks():
     assert d.flags
 
 
-def test_worst_is_none_when_every_block_is_none():
-    """모두 꺼진 블록이면 모양 지표 집계는 None 이어야 한다 (0.0 아님)."""
+def test_single_block_defines_i_drive_so_it_always_counts_as_on():
+    """블록이 하나뿐이면 그 블록 자신의 max|I_D| 가 곧 I_drive 다 — 값이 노이즈
+    수준(1e-12)이라도 on-block 기준(§3.1)을 충족해 모양 지표가 계산된다.
+
+    (이 테스트는 예전에 'test_worst_is_none_when_every_block_is_none' 이라는
+    이름이었지만 실제로는 그 반대 — is_on=True, worst 가 None 이 아님 — 를
+    검증했다. 진짜 '전부 None' 케이스는 아래 test_worst_is_all_none_when_i_drive_is_zero
+    를 본다.)"""
     v_d = np.arange(0, -61, -1, dtype=float)
     a = _block(0.0, np.full_like(v_d, -1e-12))
     d = output_diagnostics(OutputCurve(blocks=[a]))
-    # 단일 블록이면 그 블록이 곧 I_drive 이므로 is_on 이다 — 모양 지표가 나온다
     assert d.blocks[0].is_on
     assert d.worst["linearity_r2"] is not None
+
+
+def test_worst_is_all_none_when_i_drive_is_zero():
+    """모든 블록의 I_D 가 정확히 0 이면 I_drive = max(max|I_D|) = 0 이라 정규화
+    분모가 없다. 이때는 어떤 블록도 on 으로 판정될 수 없고(§3.1), 진단 4종
+    대표값이 전부 None 이어야 한다 (0.0 으로 폭주하거나 조용히 생략되면 안 된다)."""
+    v_d = np.arange(0, -61, -1, dtype=float)
+    zero_block = _block(0.0, np.zeros_like(v_d), i_g=np.zeros_like(v_d))
+    d = output_diagnostics(OutputCurve(blocks=[zero_block]))
+    assert d.i_drive is None
+    assert d.blocks[0].is_on is False
+    assert d.worst == {"zero_offset": None, "linearity_r2": None,
+                       "saturation_ratio": None, "gate_leak": None}
 
 
 def test_custom_thresholds_override_defaults_key_by_key():
