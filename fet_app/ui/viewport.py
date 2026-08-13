@@ -1,11 +1,24 @@
 """표시 배율 산출 (스펙 §5.4).
 
 뷰포트 폭 프로브가 실패해도 앱이 죽으면 안 된다. 반드시 수동 배율로 폴백한다.
+설치된 Streamlit 1.61.1 에서는 ``st.context`` 에 ``viewport`` 속성 자체가
+없다(``dir(st.context)`` 로 확인 — cookies/headers/ip_address/is_embedded/
+locale/theme/timezone/timezone_offset/url 뿐, viewport 없음). 즉
+``probe_viewport_width()`` 는 이 버전에서는 항상 None 을 돌려주고, '자동'
+모드는 실전에서 사실상 항상 FALLBACK_SCALE 을 쓴다 — 이건 예외적인 폴백이
+아니라 지금은 사실상 기본 동작값이다.
 """
 
 from __future__ import annotations
 
-FALLBACK_SCALE = 0.60
+# st.context 에는 viewport 속성이 없다(설치된 Streamlit 버전에서 확인—
+# dir(st.context) 에 없음). 그래서 probe_viewport_width() 는 실전에서 항상
+# None 을 돌려주고, '자동' 모드는 사실상 항상 이 값을 쓴다. 좌측 패널(최대
+# 480px)+우측 패널(최대 230px)이 넓어진 뒤로 0.60 은 1280~1440px 폭의
+# 노트북 화면에서 그래프 두 개가 옆으로 넘쳐 우측 소자 리스트를 화면 밖으로
+# 밀어냈다. 그 폭 대에서 넘치지 않는 값으로 낮춘다. 화면이 넓은 사용자는
+# [내보내기] 탭의 '미리보기 배율 자동' 체크를 풀고 수동으로 키우면 된다.
+FALLBACK_SCALE = 0.32
 GRAPH_DESIGN_PX = 960  # 10 inch x 96 dpi
 
 
