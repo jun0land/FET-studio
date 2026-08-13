@@ -68,3 +68,16 @@ def test_base_css_embeds_fonts():
 
 def test_base_css_includes_responsive():
     assert RESPONSIVE_CSS in base_css()
+
+
+def test_apply_ui_zoom_targets_correct_selector_and_constants():
+    """소스 레벨 확인 — 실제 브라우저 zoom 동작은 이 저장소의 테스트 인프라로
+    구동할 수 없으므로(AppTest 없음), 셀렉터와 상수가 맞는지만 확인한다."""
+    import inspect
+    from fet_app import theme
+    src = inspect.getsource(theme.apply_ui_zoom)
+    assert "stMainBlockContainer" in src
+    assert "DESIGN = 1440" in src
+    assert "MIN = 0.85" in src
+    assert "MAX = 1.0" in src
+    assert "document.body" not in src.replace(" ", "")  # body 전체에는 걸지 않는다

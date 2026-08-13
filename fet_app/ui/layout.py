@@ -46,6 +46,7 @@ def _render_doc_buttons() -> None:
 
 def render_app() -> None:
     theme.inject()
+    theme.apply_ui_zoom()
     app = st.session_state["app"]
 
     # Streamlit 은 페이지 맨 위쪽에 클릭이 잘 안 먹는 구간이 있는 것으로

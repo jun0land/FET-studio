@@ -253,3 +253,47 @@ def inject() -> None:
     import streamlit as st
 
     st.markdown(base_css(), unsafe_allow_html=True)
+
+
+def apply_ui_zoom() -> None:
+    """화면 폭에 따라 전체 UI 를 CSS zoom 으로 축소한다.
+
+    그래프 하나만 줄이는 것으로는 부족했다 — 좌우 패널 폭·폰트·여백은 그대로라
+    노트북 화면(1280~1440px)에서 우측 소자 리스트가 화면 밖으로 밀려났다.
+    NBEDL Exp Assistant(C:\\Users\\mintj\\NBEDL Exp Assistant\\app.py,
+    apply_ui_zoom())에서 검증된 같은 기법을 그대로 옮겼다: 기준 폭(DESIGN)보다
+    좁으면 축소하고, 넓으면 확대하지 않고 1.0 으로 고정한다.
+
+    body 전체에 zoom 을 걸면 Streamlit 내부의 100vh 기반 레이아웃과 충돌해
+    화면이 위로 밀린다(NBEDL 에서 이미 겪은 문제) — 그래서 vh 의존이 없는
+    .stMainBlockContainer 에만 건다.
+
+    st.components.v1.html 은 Streamlit 이 한때 폐기 예정으로 표시했던 API 지만,
+    이 글을 쓰는 시점 설치된 1.61.1 에서 여전히 동작하고, 같은 기법을 쓰는
+    NBEDL Exp Assistant 도 실제로 배포되어 동작 중이다.
+    """
+    import streamlit.components.v1 as components
+
+    components.html("""
+<script>
+(function() {
+  try {
+    var win = window.parent, doc = win.document;
+    var DESIGN = 1440, MIN = 0.85, MAX = 1.0;
+    var ID = 'fet-zoom-style';
+    var styleEl = doc.getElementById(ID);
+    if (!styleEl) { styleEl = doc.createElement('style'); styleEl.id = ID; doc.head.appendChild(styleEl); }
+    win.__fetApplyZoom = function() {
+      var z = win.innerWidth / DESIGN;
+      z = Math.max(MIN, Math.min(MAX, z));
+      styleEl.textContent = '[data-testid="stMain"] .stMainBlockContainer { zoom: ' + z + '; }';
+    };
+    win.__fetApplyZoom();
+    if (!win.__fetZoomBound) {
+      win.__fetZoomBound = true;
+      win.addEventListener('resize', function() { win.__fetApplyZoom(); });
+    }
+  } catch (err) { /* 무시 */ }
+})();
+</script>
+""", height=0)
