@@ -17,6 +17,9 @@ import pandas as pd
 
 from fet_app.constants import SEP_TOKEN
 
+# Settings 의 블록 구분선. 파일마다 '=' 개수가 조금씩 달라 앞 몇 글자만 본다.
+_SEP_PREFIX = SEP_TOKEN[:5]
+
 
 @contextlib.contextmanager
 def _quiet():
@@ -209,7 +212,7 @@ def parse_settings(df: pd.DataFrame | None) -> RunSettings:
         if not cells:
             continue
         joined = " ".join(cells)
-        if "=====" in joined:
+        if _SEP_PREFIX in joined:
             continue
         label = cells[0]
         if not label:
