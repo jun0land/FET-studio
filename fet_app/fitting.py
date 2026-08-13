@@ -89,10 +89,11 @@ def auto_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray) -> FitResult | None:
     if v_g.size != a.size or v_g.size < FIT_MIN_POINTS:
         return None
 
-    # 스펙 §3.3 그대로 I_off = min|I_D|. 정확히 0 인 측정점이 있으면 I_off = 0 이 되고
-    # 기준은 "전류가 0 이 아닌 구간" 으로 자연스럽게 축약된다. 0 을 빼고 최솟값을 잡으면
-    # off 바닥이 없는 커브(순수 제곱법칙)에서 on-영역을 과하게 잘라낸다.
-    # NaN 이 섞이면 비교가 전부 False 라 아래에서 None 으로 빠진다.
+    # 스펙 §3.3 그대로 I_off = min|I_D|. tie-break 테스트(경계점에서 정확히 I_D=0 이
+    # 되는 이상적 커브)는 "0 을 뺀 최솟값"을 쓰면 실패한다: 그 최솟값이 0 에 극도로
+    # 가까운 값이 되어 임계값이 지나치게 엄격해지고 on-후보 구간이 필요한 폭보다
+    # 줄어든다. min|I_D| 를 그대로 쓰면 정확히 0 인 점만 자연스럽게 걸러지고
+    # 후보 구간은 최대로 유지된다.
     i_off = float(np.min(a))
 
     mask = a > FIT_ON_REGION_FACTOR * i_off
