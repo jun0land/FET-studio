@@ -70,6 +70,13 @@ LINE_WIDTH_STEP = 0.5
 # Settings 시트 블록 구분자
 SEP_TOKEN = "=================================="
 
+# 인셋 레전드 스와치 기하 (x/y domain 비율. plot 영역 픽셀 크기로 나눠 얻으므로
+# k 배율은 분자·분모에서 함께 상쇄되어 자동으로 반영된다 — photodetector-app 참고)
+INSET_PAD_X = 0.014      # 스와치 좌측 안쪽 여백 (x domain 비율)
+INSET_SWATCH_W = 0.05    # 선 스와치 길이 (x domain 비율)
+INSET_GAP = 0.014        # 스와치 <-> 텍스트 간격 (x domain 비율)
+INSET_PAD_PX = 4         # 항목 위/아래 안쪽 여백 (px, k 배율 적용 후 domain 비율로 환산)
+
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:
     """#RRGGBB + 투명도 -> rgba() 문자열."""

@@ -93,10 +93,36 @@ def test_reverse_dashed_same_color():
 
 
 def test_inset_legend_lists_gate_voltages():
+    """레전드 라벨은 마크업 `V_{G}` 이 <sub>로 렌더된 문구여야 한다 (FIX 1)."""
     fig = output_figure(_curve(n=4), _settings())
     texts = " ".join(a.text for a in fig.layout.annotations)
     for v in ("0", "-20", "-40", "-60"):
-        assert f"V_G = {v} V" in texts
+        assert f"V<sub>G</sub> = {v} V" in texts
+
+
+def test_inset_legend_manual_color_key_unaffected_by_markup():
+    """manual_colors 조회 키는 마크업 라벨이 아니라 순수 숫자 문자열이어야 한다."""
+    s = _settings()
+    s["trace"]["manual_colors"] = {"-40": "#123456"}
+    fig = output_figure(_curve(n=4), s)
+    texts = " ".join(a.text for a in fig.layout.annotations)
+    assert "V<sub>G</sub> = -40 V" in texts
+    line_colors = [sh.line.color for sh in fig.layout.shapes if sh.type == "line"]
+    assert "#123456" in line_colors
+
+
+def test_inset_legend_has_one_color_swatch_per_curve():
+    """FIX 2 — 각 레전드 항목 왼쪽에 그 곡선의 실제 색으로 스와치 선이 그려져야 한다."""
+    s = _settings()
+    fig = output_figure(_curve(n=4), s)
+    expected = gradient_colors(s["trace"]["base_color"], 4,
+                               s["trace"]["lightness_min"], s["trace"]["lightness_max"])
+    line_shapes = [sh for sh in fig.layout.shapes if sh.type == "line"]
+    assert len(line_shapes) == 4
+    assert [sh.line.color for sh in line_shapes] == expected
+    # 스와치는 모두 수평선(y0 == y1)이고, 항목마다 다른 높이에 쌓여야 한다
+    assert all(sh.y0 == sh.y1 for sh in line_shapes)
+    assert len({sh.y0 for sh in line_shapes}) == 4
 
 
 def test_no_plotly_legend():
