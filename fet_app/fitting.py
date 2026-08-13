@@ -123,6 +123,11 @@ def auto_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray) -> FitResult | None:
                 best = cand
             elif abs(cand.r2 - best.r2) <= FIT_TIE_TOLERANCE and cand.n_points > best.n_points:
                 best = cand
+            elif cand.n_points == best.n_points and cand.r2 > best.r2:
+                # 점 개수가 같으면 "더 긴 창 우선" 규칙이 적용되지 않는다 — 이 경우는
+                # 그냥 R^2 가 더 높은 쪽을 쓴다. (동일 점수에서 먼저 찾은 열등한 창에
+                # 눌러앉는 것을 방지)
+                best = cand
     return best
 
 
