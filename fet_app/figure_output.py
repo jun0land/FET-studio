@@ -11,7 +11,10 @@ import re
 import numpy as np
 import plotly.graph_objects as go
 
-from fet_app.constants import INSET_GAP, INSET_PAD_X, INSET_SWATCH_W, hex_to_rgba
+from fet_app.constants import (
+    INSET_CHAR_W, INSET_GAP, INSET_LINE_HEIGHT, INSET_PAD_X, INSET_SWATCH_W,
+    hex_to_rgba,
+)
 from fet_app.figure_common import apply_inset_text, axis_layout, domains, new_figure, plot_px_size
 from fet_app.markup import apply_markup
 
@@ -53,8 +56,9 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
     if plot_h_px <= 0:
         return
     fs_px = max(1, round(float(inset.get("font_size", 30)) * k))
-    row_h_px = [fs_px * (1.75 if ("<sup>" in html or "<sub>" in html) else 1.5)
-               for _color, html in rows]
+    # 첨자가 있다고 줄을 키우지 않는다. 항목마다 주석을 따로 배치하므로 여분의
+    # 행간이 필요 없고, 키우면 항목 사이가 눈에 띄게 벌어진다.
+    row_h_px = [fs_px * INSET_LINE_HEIGHT for _color, _html in rows]
     total_h = sum(row_h_px) / plot_h_px
 
     x, y = float(inset["x"]), float(inset["y"])
@@ -63,9 +67,17 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
     top = y if yanchor == "top" else (y + total_h / 2 if yanchor == "middle" else y + total_h)
 
     max_chars = max((_plain_len(html) for _color, html in rows), default=0)
-    text_w = (max_chars * fs_px * 0.55 / plot_w_px) if plot_w_px > 0 else 0.0
+    text_w = (max_chars * fs_px * INSET_CHAR_W / plot_w_px) if plot_w_px > 0 else 0.0
     block_w = 2 * INSET_PAD_X + INSET_SWATCH_W + INSET_GAP + text_w
     left = x if xanchor == "left" else (x - block_w / 2 if xanchor == "center" else x - block_w)
+
+    # 텍스트 폭은 추정값이라 늘 실제보다 넉넉하다. 오른쪽 정렬 인셋에서 블록을
+    # 통째로 왼쪽으로 밀면 그 오차가 텍스트 우측 여백으로 그대로 드러난다.
+    # 그래서 오른쪽 정렬일 때는 텍스트를 오른쪽 끝에 붙이고, 스와치를 그 왼쪽에
+    # 놓는다 — 추정 오차가 스와치 왼쪽(테두리가 없으면 안 보이는 쪽)으로 간다.
+    right_aligned = xanchor == "right"
+    text_right = x - INSET_PAD_X            # 오른쪽 정렬일 때 텍스트 오른쪽 끝
+    swatch_x1 = text_right - text_w - INSET_GAP
 
     if inset.get("border") or inset.get("bg_opacity"):
         fig.add_shape(
@@ -80,16 +92,22 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
     for (color, html), h_px in zip(rows, row_h_px):
         h_dom = h_px / plot_h_px
         cy = cursor - h_dom / 2
-        x0 = left + INSET_PAD_X
-        x1 = x0 + INSET_SWATCH_W
+        if right_aligned:
+            x1 = swatch_x1
+            x0 = x1 - INSET_SWATCH_W
+            text_x, text_anchor = text_right, "right"
+        else:
+            x0 = left + INSET_PAD_X
+            x1 = x0 + INSET_SWATCH_W
+            text_x, text_anchor = x1 + INSET_GAP, "left"
         fig.add_shape(
             type="line", xref="x domain", yref="y domain", layer="above",
             x0=x0, x1=x1, y0=cy, y1=cy,
             line=dict(color=color, width=max(0.5, float(style["line_width"]) * k)),
         )
         fig.add_annotation(
-            x=x1 + INSET_GAP, y=cy, xref="x domain", yref="y domain",
-            xanchor="left", yanchor="middle", text=html,
+            x=text_x, y=cy, xref="x domain", yref="y domain",
+            xanchor=text_anchor, yanchor="middle", text=html,
             showarrow=False, align="left",
             font=dict(family=style["font_family"], size=fs_px, color="#000000"),
         )
