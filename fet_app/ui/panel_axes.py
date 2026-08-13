@@ -38,12 +38,12 @@ def _fmt_num(v) -> str:
 
 def _axis_row(cfg: dict, key_prefix: str, label: str) -> None:
     c_label, c_auto, c_min, c_max, c_major, c_minor = st.columns(
-        [0.7, 0.7, 1, 1, 1, 1])
+        [0.7, 0.7, 1, 1, 1, 1], vertical_alignment="center")
     with c_label:
         st.markdown(f"**{label}**")
     with c_auto:
         cfg["auto"] = st.checkbox("auto", value=bool(cfg.get("auto", True)),
-                                  key=f"{key_prefix}_auto")
+                                  key=f"{key_prefix}_auto", label_visibility="collapsed")
     is_auto = bool(cfg["auto"])
     with c_min:
         min_txt = st.text_input("min", value=_fmt_num(cfg.get("min")),
