@@ -21,16 +21,21 @@ def test_missing_doc_returns_placeholder_not_crash():
 
 
 def test_methods_contains_every_algorithm_constant():
-    """상수를 바꾸면 METHODS.md 도 같이 바뀌게 강제한다 (스펙 §8)."""
+    """상수를 바꾸면 METHODS.md 도 같이 바뀌게 강제한다 (스펙 §8).
+
+    맨 숫자(예: "10", "5")만으로 찾으면 문서 어디에나 있는 다른 숫자와 우연히
+    일치해 상수가 지워져도 테스트가 계속 통과한다 — 그래서 상수가 실제로
+    설명되는 문맥(주변 문구)까지 함께 확인한다."""
     text = load_methods()
     required = [
-        "8.854",                                   # EPSILON_0
-        str(constants.FIT_ON_REGION_FACTOR).rstrip("0").rstrip("."),  # 100
-        str(constants.FIT_MIN_POINTS),             # 10
-        "60",                                      # FIT_MAX_FRACTION
-        "5e-4",                                    # FIT_TIE_TOLERANCE
-        str(constants.SS_WINDOW),                  # 5
-        str(constants.DIAG_SLOPE_POINTS),          # 5
+        "8.854",                                          # EPSILON_0
+        str(constants.FIT_ON_REGION_FACTOR).rstrip("0").rstrip(".") + " × I_off",  # 100
+        "최소 " + str(constants.FIT_MIN_POINTS) + " 점",   # FIT_MIN_POINTS
+        "60 %",                                           # FIT_MAX_FRACTION
+        "5e-4",                                            # FIT_TIE_TOLERANCE
+        "SS_WINDOW = " + str(constants.SS_WINDOW),          # SS_WINDOW
+        "DIAG_SLOPE_POINTS = " + str(constants.DIAG_SLOPE_POINTS),  # DIAG_SLOPE_POINTS
+        "FIT_R2_WARN = " + str(constants.FIT_R2_WARN),      # FIT_R2_WARN
     ]
     for token in required:
         assert token in text, f"METHODS.md 에 '{token}' 이 없습니다"
@@ -43,10 +48,12 @@ def test_methods_contains_dielectric_presets():
 
 
 def test_methods_contains_thresholds():
+    """바로 위 테스트와 같은 이유로, 임계값도 판정 문구 안에서 확인한다 —
+    "0.1" 같은 맨 숫자는 문서의 아무 다른 숫자에나 우연히 걸린다."""
     text = load_methods()
-    assert "1 %" in text or "1%" in text
-    assert "0.99" in text
-    assert "0.1" in text
+    assert "> 1 %" in text or "1%" in text
+    assert "< 0.99" in text        # 원점 선형성 R^2 임계값
+    assert "> 0.1" in text         # 포화 기울기비 임계값
 
 
 def test_methods_contains_all_formulas():
