@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from fet_app.parsing import SettingsInfo, output_block_count
+from fet_app.parsing import SettingsInfo, output_block_indices
 
 
 def _turning_index(v: np.ndarray) -> int | None:
@@ -84,12 +84,34 @@ class OutputCurve:
         return [b.v_g for b in self.blocks]
 
 
+def _require_columns(data: pd.DataFrame, needed: list[str], what: str) -> None:
+    """없는 열을 pandas 가 스칼라 nan 으로 broadcast 하기 전에 잡는다.
+
+    그냥 두면 'If using all scalar values, you must pass an index' 라는
+    쓸모없는 메시지가 사용자에게 그대로 노출되고, 열이 하나만 빠졌을 때는
+    조용히 빈 프레임이 만들어져 그래프 단계에서 뒤늦게 터진다.
+    """
+    missing = [c for c in needed if c not in data.columns]
+    if missing:
+        raise ValueError(
+            f"{what} 에 필요한 열이 없습니다: {', '.join(missing)}. "
+            "측정이 중단된 파일이거나 형식이 다를 수 있습니다."
+        )
+
+
 def build_transfer(data: pd.DataFrame, info: SettingsInfo) -> TransferCurve:
+    _require_columns(data, ["GateV", "GateI", "DrainI"], "transfer curve")
     frame = pd.DataFrame({
-        "V_G": pd.to_numeric(data.get("GateV"), errors="coerce"),
-        "I_G": pd.to_numeric(data.get("GateI"), errors="coerce"),
-        "I_D": pd.to_numeric(data.get("DrainI"), errors="coerce"),
+        "V_G": pd.to_numeric(data["GateV"], errors="coerce"),
+        "I_G": pd.to_numeric(data["GateI"], errors="coerce"),
+        "I_D": pd.to_numeric(data["DrainI"], errors="coerce"),
     }).dropna().reset_index(drop=True)
+
+    if frame.empty:
+        raise ValueError(
+            "transfer curve 에 쓸 수 있는 숫자 데이터가 없습니다. "
+            "측정이 중단된 파일일 수 있습니다."
+        )
 
     dual = info.dual_sweep("Gate")
     fwd, rev = split_dual(frame, info.n_points("Gate"), dual)
@@ -98,21 +120,28 @@ def build_transfer(data: pd.DataFrame, info: SettingsInfo) -> TransferCurve:
 
 
 def build_output(data: pd.DataFrame, info: SettingsInfo) -> OutputCurve:
-    n = output_block_count(data)
     dual = info.dual_sweep("Drain")
     n_points = info.n_points("Drain")
 
+    # 실제로 있는 블록 번호만 돈다. 1..n 로 이어진다고 가정하면 1,2,4 처럼
+    # 비어 있는 파일에서 없는 열을 읽는다.
+    indices = output_block_indices(data)
+
     blocks: list[OutputBlock] = []
-    for i in range(1, n + 1):
+    for i in indices:
+        _require_columns(
+            data, [f"DrainV({i})", f"DrainI({i})", f"GateI({i})", f"GateV({i})"],
+            f"output curve 블록 {i}",
+        )
         frame = pd.DataFrame({
-            "V_D": pd.to_numeric(data.get(f"DrainV({i})"), errors="coerce"),
-            "I_D": pd.to_numeric(data.get(f"DrainI({i})"), errors="coerce"),
-            "I_G": pd.to_numeric(data.get(f"GateI({i})"), errors="coerce"),
+            "V_D": pd.to_numeric(data[f"DrainV({i})"], errors="coerce"),
+            "I_D": pd.to_numeric(data[f"DrainI({i})"], errors="coerce"),
+            "I_G": pd.to_numeric(data[f"GateI({i})"], errors="coerce"),
         }).dropna().reset_index(drop=True)
         if frame.empty:
             continue
 
-        v_g_col = pd.to_numeric(data.get(f"GateV({i})"), errors="coerce").dropna()
+        v_g_col = pd.to_numeric(data[f"GateV({i})"], errors="coerce").dropna()
         v_g = float(v_g_col.iloc[0]) if not v_g_col.empty else float("nan")
 
         fwd, rev = split_dual(frame, n_points, dual)

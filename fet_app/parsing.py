@@ -275,14 +275,23 @@ def data_sheet(sheets: dict, name: str | None = None) -> pd.DataFrame:
     return df
 
 
-def output_block_count(data: pd.DataFrame) -> int:
-    """GateI(n)/GateV(n)/DrainI(n)/DrainV(n) 블록 개수. 하드코딩 금지 (스펙 §1.2)."""
+def output_block_indices(data: pd.DataFrame) -> list[int]:
+    """실제로 존재하는 블록 번호를 오름차순으로.
+
+    1..n 로 이어진다고 가정하면 안 된다 — 1, 2, 4 처럼 비어 있는 파일이 오면
+    없는 열을 읽게 된다.
+    """
     indices = set()
     for c in data.columns:
         m = _BLOCK_RE.match(str(c).strip())
         if m:
             indices.add(int(m.group(2)))
-    return len(indices)
+    return sorted(indices)
+
+
+def output_block_count(data: pd.DataFrame) -> int:
+    """GateI(n)/GateV(n)/DrainI(n)/DrainV(n) 블록 개수. 하드코딩 금지 (스펙 §1.2)."""
+    return len(output_block_indices(data))
 
 
 def _has_constant_gate_blocks(data: pd.DataFrame) -> bool:

@@ -33,6 +33,16 @@ def format_metric(value, kind: str) -> str:
     return f"{value:.4g}"
 
 
+def _has_transfer_data(curve) -> bool:
+    return curve is not None and not curve.forward.empty
+
+
+def _has_output_data(curve) -> bool:
+    if curve is None or not curve.blocks:
+        return False
+    return any(b.forward is not None and not b.forward.empty for b in curve.blocks)
+
+
 def compute(app, g):
     """(TransferMetrics | None, OutputDiagnostics | None)."""
     tm = od = None
@@ -124,7 +134,10 @@ def render_device_view(app, k: float) -> None:
         return
     tm, od = compute(app, g)
 
-    has_t, has_o = g.transfer is not None, g.output is not None
+    # "커브가 있다" 는 None 이 아닌 것만으로는 부족하다. 측정이 중단된 파일은
+    # 빈 프레임을 만들어 내고, 그걸 그리려 하면 축 계산에서 터진다.
+    has_t = _has_transfer_data(g.transfer)
+    has_o = _has_output_data(g.output)
     if has_t and has_o:
         cols = st.columns(2, gap="medium")
         with cols[0]:

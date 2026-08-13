@@ -77,9 +77,14 @@ def transfer_figure(curve, metrics, settings: dict, k: float = 1.0) -> go.Figure
             hoverinfo="skip",
         ))
 
-    v_cat = np.concatenate(all_v)
-    i_cat = np.concatenate(all_i)
-    s_cat = np.concatenate(all_sqrt)
+    # 빈 커브(측정 중단 파일)여도 축이 만들어져야 한다. 방어가 없으면
+    # np.min 이 zero-size 배열에서 터져 페이지 전체가 트레이스백이 된다.
+    # figure_output 도 같은 방식으로 막고 있다.
+    v_cat = np.concatenate(all_v) if all_v else np.array([0.0, 1.0])
+    i_cat = np.concatenate(all_i) if all_i else np.array([np.nan])
+    s_cat = np.concatenate(all_sqrt) if all_sqrt else np.array([np.nan])
+    if v_cat.size == 0:
+        v_cat = np.array([0.0, 1.0])
     i_pos = i_cat[np.isfinite(i_cat)]
     s_pos = s_cat[np.isfinite(s_cat)]
 
