@@ -130,10 +130,12 @@ DEFAULTS = {
         "lightness_max": 0.82,
         "manual_colors": {},   # {v_g(str): "#RRGGBB"} — 비어 있으면 그라데이션 사용
     },
+    # p-type output 곡선은 원점(우상단)에서 좌하단으로 그어지므로, 두 인셋 기본값을
+    # 데이터가 비어 있는 반대쪽 두 모서리(우하단/좌상단)로 둔다.
     "insets": {
-        "legend": {"x": 0.99, "y": 0.99, "xanchor": "right", "yanchor": "top",
+        "legend": {"x": 0.99, "y": 0.01, "xanchor": "right", "yanchor": "bottom",
                    "font_size": 30, "bg_opacity": 0.0, "border": False},
-        "sample": {"x": 0.01, "y": 0.01, "xanchor": "left", "yanchor": "bottom",
+        "sample": {"x": 0.01, "y": 0.99, "xanchor": "left", "yanchor": "top",
                    "text": "", "font_size": 30},
     },
 }

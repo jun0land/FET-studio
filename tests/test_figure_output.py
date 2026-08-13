@@ -125,5 +125,16 @@ def test_inset_legend_has_one_color_swatch_per_curve():
     assert len({sh.y0 for sh in line_shapes}) == 4
 
 
+def test_default_inset_positions_avoid_p_type_output_curve():
+    """FIX 3 — p-type output 곡선은 우상단->좌하단으로 그려지므로, 두 인셋 기본값이
+    빈 모서리(레전드=우하단, 샘플=좌상단)에 있어야 한다."""
+    legend = DEFAULTS["insets"]["legend"]
+    sample = DEFAULTS["insets"]["sample"]
+    assert (legend["x"], legend["y"], legend["xanchor"], legend["yanchor"]) == (
+        0.99, 0.01, "right", "bottom")
+    assert (sample["x"], sample["y"], sample["xanchor"], sample["yanchor"]) == (
+        0.01, 0.99, "left", "top")
+
+
 def test_no_plotly_legend():
     assert output_figure(_curve(), _settings()).layout.showlegend is False
