@@ -7,6 +7,54 @@ import streamlit as st
 from fet_app.constants import DIELECTRIC_PRESETS
 from fet_app.params import DeviceParams
 
+# classify_curve 의 reason("forcing"/"structure"/"name") -> 사람이 읽을 라벨.
+# fet_app/parsing.py classify_curve 의 판정 순서(스펙 §2, MANUAL.md §1.2)와 맞춘다.
+REASON_LABELS = {
+    "forcing": "Settings 의 Forcing Function",
+    "structure": "Data 열 구조",
+    "name": "파일명",
+}
+
+
+def _render_source_picker(g, sources_attr: str, file_attr: str, run_attr: str,
+                          select_fn, label: str) -> None:
+    """커브 종류 하나(transfer/output)의 활성 파일 선택 + 런 선택 + 판정 근거."""
+    sources: dict = getattr(g, sources_attr)
+    active_file = getattr(g, file_attr)
+
+    # 후보 파일이 둘 이상일 때만 고르는 드롭다운을 보여준다 — 파일이 하나뿐인
+    # 소자에 쓸모없는 드롭다운을 붙이지 않는다.
+    if len(sources) > 1:
+        names = list(sources)
+        choice = st.selectbox(
+            f"{label} 파일", names,
+            index=names.index(active_file) if active_file in names else 0,
+            key=f"{run_attr}_file_{g.name}")
+        if choice != active_file:
+            select_fn(choice)
+            active_file = choice
+
+    runs = sources.get(active_file, []) if active_file else []
+
+    # 재측정 파일(Data + Append1)이면 어느 런을 분석할지 고른다. 기본은 Latest.
+    if len(runs) > 1:
+        labels = [r.label for r in runs]
+        idx = getattr(g, run_attr)
+        idx = labels.index(st.selectbox(
+            f"{label} 측정 런", labels,
+            index=min(idx, len(labels) - 1), key=f"{run_attr}_{g.name}"))
+        setattr(g, run_attr, idx)
+
+    idx = getattr(g, run_attr)
+    run = runs[idx] if runs and 0 <= idx < len(runs) else (runs[0] if runs else None)
+    if run is not None:
+        basis = REASON_LABELS.get(run.reason, run.reason)
+        text = f"{label} 판정 근거: {basis} · '{active_file}'"
+        if run.reason == "name":
+            st.warning(text, icon="⚠")
+        else:
+            st.caption(text)
+
 
 def render(app) -> None:
     g = app.device(app.selected)
@@ -19,17 +67,12 @@ def render(app) -> None:
             for w in g.warnings:
                 st.caption(w)
 
-    # 재측정 파일(Data + Append1)이면 어느 런을 분석할지 고른다. 기본은 Latest.
-    if len(g.transfer_runs) > 1:
-        labels = [r.label for r in g.transfer_runs]
-        g.transfer_run_idx = labels.index(st.selectbox(
-            "Transfer 측정 런", labels,
-            index=min(g.transfer_run_idx, len(labels) - 1), key=f"trun_{g.name}"))
-    if len(g.output_runs) > 1:
-        labels = [r.label for r in g.output_runs]
-        g.output_run_idx = labels.index(st.selectbox(
-            "Output 측정 런", labels,
-            index=min(g.output_run_idx, len(labels) - 1), key=f"orun_{g.name}"))
+    if g.transfer_sources:
+        _render_source_picker(g, "transfer_sources", "transfer_file", "transfer_run_idx",
+                              g.select_transfer_file, "Transfer")
+    if g.output_sources:
+        _render_source_picker(g, "output_sources", "output_file", "output_run_idx",
+                              g.select_output_file, "Output")
 
     p = g.params
     c1, c2 = st.columns(2)
