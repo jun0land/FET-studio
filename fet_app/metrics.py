@@ -8,7 +8,7 @@ import numpy as np
 
 from fet_app.constants import (
     DEFAULT_THRESHOLDS, DIAG_ON_BLOCK_FRACTION, DIAG_ORIGIN_FRACTION,
-    DIAG_SLOPE_POINTS, SS_WINDOW,
+    DIAG_SLOPE_POINTS, FIT_R2_WARN, SS_WINDOW,
 )
 from fet_app.curves import OutputCurve, TransferCurve
 from fet_app.fitting import FitResult, auto_fit_sqrt, linear_fit, manual_fit_sqrt
@@ -119,7 +119,7 @@ def transfer_metrics(curve: TransferCurve, p: DeviceParams,
 
     m.v_th, m.mu_sat = threshold_and_mobility(m.fit, p)
 
-    if m.fit.r2 < 0.99:
+    if m.fit.r2 < FIT_R2_WARN:
         m.warnings.append(f"fit R² = {m.fit.r2:.4f} 로 낮습니다. 구간을 확인하세요.")
 
     # 포화 조건 |V_DS| >= |V_G - V_th| 검사 (스펙 §3.8)

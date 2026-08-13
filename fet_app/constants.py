@@ -36,11 +36,14 @@ DIAG_ORIGIN_FRACTION = 0.10    # 원점 선형성 판정 구간 = 스윕폭의 1
 DIAG_ON_BLOCK_FRACTION = 0.01  # on-block 판정: 블록 max|I_D| >= 1 % of I_drive
 
 DEFAULT_THRESHOLDS = {
-    "zero_offset": 0.01,       # |I_D(0)| / max|I_D| 가 1 % 초과면 경고
+    "zero_offset": 0.01,       # |I_D(0)| / I_drive 가 1 % 초과면 경고
     "linearity_r2": 0.99,      # 원점 구간 선형 fit R^2 가 0.99 미만이면 경고
     "saturation": 0.1,         # 말단/원점 기울기비가 0.1 초과면 미포화 경고
-    "gate_leak": 0.01,         # max|I_G| / max|I_D| 가 1 % 초과면 경고
+    "gate_leak": 0.01,         # max|I_G| / I_drive 가 1 % 초과면 경고
 }
+
+# ---------------- transfer fit 품질 (스펙 §3.2) ----------------
+FIT_R2_WARN = 0.99             # transfer fit R^2 가 이 미만이면 사용자에게 경고
 
 # ---------------- 그래프 ----------------
 ACCENT = "#ed542b"
