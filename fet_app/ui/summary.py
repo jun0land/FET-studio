@@ -217,8 +217,3 @@ def render_summary_table(app) -> None:
                 app.show_summary = False
                 st.rerun()
 
-    with st.expander("문서"):
-        from fet_app.manual import DOCS, load_doc
-        for tab, (name, file_name) in zip(st.tabs(list(DOCS)), DOCS.items()):
-            with tab:
-                st.markdown(load_doc(file_name))

@@ -153,6 +153,21 @@ html, body, [class*="css"], .stApp, button, input, textarea, select {{
 }}
 .stButton > button[kind="primary"]:hover {{ color: white; opacity: 0.94; }}
 
+/* 헤더 문서 버튼 — NBEDL Exp Assistant 의 사용설명서(주황)/분석방법(청록) 배색을 그대로 옮겼다 */
+.st-key-doc_manual_btn button {{
+    background: linear-gradient(135deg, #ed542b, #f68b21) !important;
+    color: white !important;
+    border: none !important;
+}}
+.st-key-doc_manual_btn button:hover {{ opacity: 0.9; }}
+
+.st-key-doc_methods_btn button {{
+    background: linear-gradient(135deg, #0c8599, #20c997) !important;
+    color: white !important;
+    border: none !important;
+}}
+.st-key-doc_methods_btn button:hover {{ opacity: 0.9; }}
+
 h1, h2, h3, h4, p, label, span {{ text-shadow: none; }}
 </style>
 """
@@ -178,9 +193,11 @@ RESPONSIVE_CSS = """
 /* 3열: 편집 패널 / 그래프(신축) / 소자 리스트.
    Streamlit 은 st.columns 에 클래스를 붙일 수 없으므로, 첫 컬럼에 심어둔
    마커 <div class="fet-shell-anchor"> 를 :has() 로 찾아 그 부모를 잡는다. */
+/* 편집 패널은 이제 탭 4개(정보/축/인셋/서식)를 담는다 — 축 탭의 행 하나가
+   label/auto/min/max/major/minor 6컬럼이라 340px 상한으로는 비좁았다. */
 div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(1) {
-  flex: 0 0 clamp(260px, 20vw, 340px);
-  min-width: 260px;
+  flex: 0 0 clamp(340px, 30vw, 480px);
+  min-width: 340px;
 }
 div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(2) {
   flex: 1 1 auto;
@@ -203,8 +220,9 @@ div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="s
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) {
     flex-wrap: wrap;
   }
+  /* 편집 패널이 탭 4개를 담으므로 기본 최소폭(340px)과 일관되게 유지한다. */
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(1) {
-    flex: 0 0 280px; min-width: 280px;
+    flex: 0 0 340px; min-width: 340px;
   }
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"]:nth-child(3) {
     flex: 1 1 100%; min-width: 0;

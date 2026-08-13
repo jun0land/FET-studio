@@ -83,12 +83,14 @@ def _axis_tab(axes: dict, key_prefix: str, rows: list[tuple[str, str]]) -> None:
 
 
 def render(app) -> None:
+    """아코디언으로 감싸지 않는다 — 이미 panel_edit 의
+    st.tabs(["정보","축","인셋","서식"]) 안 '축' 탭 내용이라, 탭 안에 또
+    아코디언을 두면 클릭이 한 번 더 든다."""
     s = app.settings
-    with st.expander("축", expanded=False):
-        tabs = st.tabs(["Transfer", "Output"])
-        with tabs[0]:
-            _axis_tab(s["transfer_axes"], "ax_t",
-                     [("x", "X"), ("y", "좌Y"), ("y2", "우Y")])
-        with tabs[1]:
-            _axis_tab(s["output_axes"], "ax_o",
-                     [("x", "X"), ("y", "Y")])
+    tabs = st.tabs(["Transfer", "Output"])
+    with tabs[0]:
+        _axis_tab(s["transfer_axes"], "ax_t",
+                 [("x", "X"), ("y", "좌Y"), ("y2", "우Y")])
+    with tabs[1]:
+        _axis_tab(s["output_axes"], "ax_o",
+                 [("x", "X"), ("y", "Y")])

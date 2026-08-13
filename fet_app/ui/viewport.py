@@ -40,6 +40,7 @@ def preview_scale(app) -> float:
     width = probe_viewport_width()
     if width is None:
         return FALLBACK_SCALE
-    # 3열에서 그래프 두 개가 나눠 갖는 폭 추정: 본문 - 좌우 패널 - 여백
-    usable = min(float(width), 1760.0) - 340 - 230 - 80
+    # 3열에서 그래프 두 개가 나눠 갖는 폭 추정: 본문 - 좌우 패널 - 여백.
+    # 좌측 패널은 이제 최대 480px (theme.RESPONSIVE_CSS 의 clamp 상한).
+    usable = min(float(width), 1760.0) - 480 - 230 - 80
     return scale_for_width(max(200.0, usable / 2.0))

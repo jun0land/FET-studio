@@ -100,11 +100,13 @@ def _tab(inset: dict, key_prefix: str, *, with_text: bool) -> None:
 
 
 def render(app) -> None:
+    """아코디언으로 감싸지 않는다 — 이미 panel_edit 의
+    st.tabs(["정보","축","인셋","서식"]) 안 '인셋' 탭 내용이라, 탭 안에 또
+    아코디언을 두면 클릭이 한 번 더 든다."""
     s = app.settings
-    with st.expander("인셋", expanded=False):
-        insets = s["insets"]
-        tabs = st.tabs(["레전드", "샘플명"])
-        with tabs[0]:
-            _tab(insets["legend"], "inset_legend", with_text=False)
-        with tabs[1]:
-            _tab(insets["sample"], "inset_sample", with_text=True)
+    insets = s["insets"]
+    tabs = st.tabs(["레전드", "샘플명"])
+    with tabs[0]:
+        _tab(insets["legend"], "inset_legend", with_text=False)
+    with tabs[1]:
+        _tab(insets["sample"], "inset_sample", with_text=True)
