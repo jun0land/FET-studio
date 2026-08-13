@@ -33,12 +33,15 @@ def _curve(dual=True):
 
 
 def test_left_axis_title_uses_absolute_value_symbol():
-    """FET 에서는 절댓값 기호를 쓴다 (스펙 §5.2 — photodetector 규약을 뒤집은 항목)."""
+    """FET 에서는 절댓값 기호를 쓴다 (스펙 §5.2 — photodetector 규약을 뒤집은 항목).
+
+    기본 제목은 인라인 마크업(`_{...}`/`^{...}`)으로 정의되어 있고, axis_layout 이
+    apply_markup 을 거쳐 Plotly HTML(<sub>/<sup>)로 렌더한다 (FIX 1)."""
     c = _curve()
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
-    assert fig.layout.yaxis.title.text == "|I_D| (A)"
-    assert fig.layout.yaxis2.title.text == "√|I_D| (A^0.5)"
-    assert fig.layout.xaxis.title.text == "V_G (V)"
+    assert fig.layout.yaxis.title.text == "|I<sub>D</sub>| (A)"
+    assert fig.layout.yaxis2.title.text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)"
+    assert fig.layout.xaxis.title.text == "V<sub>G</sub> (V)"
 
 
 def test_second_axis_overlays_on_right():
@@ -105,6 +108,15 @@ def test_no_plotly_legend():
     c = _curve()
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
     assert fig.layout.showlegend is False
+
+
+def test_custom_axis_title_markup_expands_to_html():
+    """사용자가 축 제목에 마크업을 쓰면 실제로 <sub>/<sup>/<b>로 확장돼야 한다 (FIX 1)."""
+    c = _curve()
+    s = _settings()
+    s["axes"]["x"]["title"] = "**V**_{DS} (^{n}V)"
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    assert fig.layout.xaxis.title.text == "<b>V</b><sub>DS</sub> (<sup>n</sup>V)"
 
 
 def test_scale_shrinks_figure_and_fonts():

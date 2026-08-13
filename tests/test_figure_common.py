@@ -1,7 +1,10 @@
 import copy
 
+import plotly.graph_objects as go
+
 from fet_app.constants import DEFAULTS
-from fet_app.figure_common import DPI, axis_layout, domains, new_figure, px_size
+from fet_app.figure_common import (DPI, apply_inset_text, axis_layout, domains,
+                                   new_figure, plot_px_size, px_size)
 
 
 def test_px_size_uses_96_dpi():
@@ -61,3 +64,42 @@ def test_new_figure_is_white_and_unmargined():
     assert fig.layout.plot_bgcolor == "#FFFFFF"
     assert fig.layout.margin.l == 0
     assert fig.layout.showlegend is False
+
+
+def test_axis_layout_title_runs_through_markup():
+    """FIX 1 — 축 제목 마크업(`_{...}`/`^{...}`)이 Plotly HTML 로 확장돼야 한다."""
+    cfg = dict(DEFAULTS["transfer_axes"]["x"])
+    cfg["title"] = "V_{G} (V)"
+    lay = axis_layout(cfg, DEFAULTS["style"], k=1.0)
+    assert lay["title"]["text"] == "V<sub>G</sub> (V)"
+
+
+def test_apply_inset_text_runs_through_markup():
+    fig = go.Figure()
+    inset = dict(DEFAULTS["insets"]["sample"])
+    apply_inset_text(fig, "**Sample**-1_{a}", inset, DEFAULTS["style"], k=1.0)
+    assert fig.layout.annotations[0].text == "<b>Sample</b>-1<sub>a</sub>"
+
+
+def test_apply_inset_text_skips_empty_text():
+    fig = go.Figure()
+    inset = dict(DEFAULTS["insets"]["sample"])
+    apply_inset_text(fig, "", inset, DEFAULTS["style"], k=1.0)
+    assert fig.layout.annotations == ()
+
+
+def test_plot_px_size_matches_domain_fraction_of_page():
+    geom = DEFAULTS["geom"]
+    w, h = px_size(geom, 1.0)
+    x_dom, y_dom = domains(geom)
+    plot_w, plot_h = plot_px_size(geom, 1.0)
+    assert plot_w == w * (x_dom[1] - x_dom[0])
+    assert plot_h == h * (y_dom[1] - y_dom[0])
+
+
+def test_plot_px_size_scales_with_k():
+    geom = DEFAULTS["geom"]
+    full = plot_px_size(geom, 1.0)
+    half = plot_px_size(geom, 0.5)
+    assert half[0] == full[0] / 2
+    assert half[1] == full[1] / 2

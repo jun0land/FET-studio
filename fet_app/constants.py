@@ -93,22 +93,22 @@ DEFAULTS = {
     "transfer_axes": {
         "x": {"type": "linear", "auto": True, "min": None, "max": None,
               "dtick": 20.0, "minor_dtick": None,
-              "title": "V_G (V)", "title_standoff": None},
+              "title": "V_{G} (V)", "title_standoff": None},
         # 좌 Y: 절댓값 기호를 쓴다 (스펙 §5.2 — photodetector-app 규약 A2 를 뒤집음)
         "y": {"type": "log", "auto": True, "min": None, "max": None,
               "dtick": 1, "minor_dtick": "D1",
-              "title": "|I_D| (A)", "title_standoff": None},
+              "title": "|I_{D}| (A)", "title_standoff": None},
         "y2": {"type": "linear", "auto": True, "min": None, "max": None,
                "dtick": None, "minor_dtick": None,
-               "title": "√|I_D| (A^0.5)", "title_standoff": None},
+               "title": "√|I_{D}| (A^{0.5})", "title_standoff": None},
     },
     "output_axes": {
         "x": {"type": "linear", "auto": True, "min": None, "max": None,
               "dtick": 20.0, "minor_dtick": None,
-              "title": "V_D (V)", "title_standoff": None},
+              "title": "V_{D} (V)", "title_standoff": None},
         "y": {"type": "linear", "auto": True, "min": None, "max": None,
               "dtick": None, "minor_dtick": None,
-              "title": "I_D (A)", "title_standoff": None},
+              "title": "I_{D} (A)", "title_standoff": None},
     },
     "transfer_style": {
         "color": "#000000",

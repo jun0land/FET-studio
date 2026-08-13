@@ -52,11 +52,12 @@ def test_gradient_preserves_hue_family():
 
 
 def test_output_axes_are_linear():
+    """기본 제목은 마크업(`V_{D}`/`I_{D}`)이며 axis_layout 이 <sub>로 렌더한다 (FIX 1)."""
     fig = output_figure(_curve(), _settings())
     assert fig.layout.yaxis.type == "linear"
     assert fig.layout.xaxis.type == "linear"
-    assert fig.layout.xaxis.title.text == "V_D (V)"
-    assert fig.layout.yaxis.title.text == "I_D (A)"
+    assert fig.layout.xaxis.title.text == "V<sub>D</sub> (V)"
+    assert fig.layout.yaxis.title.text == "I<sub>D</sub> (A)"
 
 
 def test_one_trace_pair_per_block():

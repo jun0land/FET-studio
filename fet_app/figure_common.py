@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 
+from fet_app.markup import apply_markup
+
 DPI = 96
 
 
@@ -39,7 +41,7 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
 
     lay: dict = {
         "type": cfg.get("type", "linear"),
-        "title": {"text": cfg.get("title", ""),
+        "title": {"text": apply_markup(cfg.get("title", "")),
                   "font": {"family": family, "size": title_size, "color": "#000000"}},
         "tickfont": {"family": family, "size": tick_size, "color": "#000000"},
         "showline": True,
@@ -81,6 +83,18 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
     return lay
 
 
+def plot_px_size(geom: dict, k: float = 1.0) -> tuple[float, float]:
+    """플롯 영역(그래프 domain)의 픽셀 크기. 인셋 스와치 기하 계산에 쓴다.
+
+    domain 비율은 k 와 무관하지만, 이 함수가 반환하는 픽셀 크기에는 k 가
+    반영되어 있으므로 "픽셀 단위로 정한 크기(폰트 등)를 domain 비율로 환산"할 때
+    분모로 쓰면 k 배율이 자동으로 맞아떨어진다.
+    """
+    w, h = px_size(geom, k)
+    x_dom, y_dom = domains(geom)
+    return w * (x_dom[1] - x_dom[0]), h * (y_dom[1] - y_dom[0])
+
+
 def new_figure(geom: dict, k: float = 1.0) -> go.Figure:
     w, h = px_size(geom, k)
     fig = go.Figure()
@@ -100,7 +114,7 @@ def apply_inset_text(fig: go.Figure, text: str, inset: dict,
     if not text:
         return
     fig.add_annotation(
-        text=text,
+        text=apply_markup(text),
         xref="x domain", yref="y domain",
         x=float(inset["x"]), y=float(inset["y"]),
         xanchor=inset.get("xanchor", "left"), yanchor=inset.get("yanchor", "bottom"),
