@@ -245,3 +245,85 @@ def parse_settings(df: pd.DataFrame | None) -> RunSettings:
     if runs.latest is None and runs.order:
         runs.latest = runs.order[0]
     return runs
+
+
+# ---------------- 커브 종류 판정 (스펙 §2) ----------------
+
+TRANSFER = "transfer"
+OUTPUT = "output"
+
+_BLOCK_RE = re.compile(r"^(GateI|GateV|DrainI|DrainV)\((\d+)\)$")
+
+
+def data_sheet(sheets: dict, name: str | None = None) -> pd.DataFrame:
+    """데이터 시트 하나를 컬럼명 strip 해 반환한다.
+
+    name 을 주면 그 시트, 없으면 data_sheet_names 의 첫 번째(= Data).
+    재측정 파일(Data + Append1)에서 특정 런을 꺼낼 때 name 을 쓴다.
+    """
+    if name is None:
+        ordered = data_sheet_names(sheets)
+        if not ordered:
+            raise ValueError("데이터 시트를 찾지 못했습니다.")
+        name = ordered[0]
+
+    key = next((k for k in sheets if str(k).strip() == str(name).strip()), None)
+    if key is None:
+        raise ValueError(f"데이터 시트 '{name}' 를 찾지 못했습니다.")
+    df = sheets[key].copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def output_block_count(data: pd.DataFrame) -> int:
+    """GateI(n)/GateV(n)/DrainI(n)/DrainV(n) 블록 개수. 하드코딩 금지 (스펙 §1.2)."""
+    indices = set()
+    for c in data.columns:
+        m = _BLOCK_RE.match(str(c).strip())
+        if m:
+            indices.add(int(m.group(2)))
+    return len(indices)
+
+
+def _has_constant_gate_blocks(data: pd.DataFrame) -> bool:
+    """output 은 블록마다 GateV(n) 이 상수다. 하나라도 변하면 output 이 아니다."""
+    n = output_block_count(data)
+    if n < 1:
+        return False
+    for i in range(1, n + 1):
+        col = f"GateV({i})"
+        if col not in data.columns:
+            return False
+        vals = pd.to_numeric(data[col], errors="coerce").dropna()
+        if vals.empty or vals.nunique() != 1:
+            return False
+    return True
+
+
+def classify_curve(data: pd.DataFrame, info: SettingsInfo,
+                   file_name: str) -> tuple[str, str]:
+    """(kind, reason) 반환. reason 은 판정 근거 단계: forcing / structure / name.
+
+    1순위 Settings 의 Forcing Function, 2순위 Data 열 구조, 3순위 이름.
+    파일 이름 규칙을 요구하지 않기 위한 3단 폴백이다.
+    """
+    gate = info.get("Forcing Function", "Gate").lower()
+    drain = info.get("Forcing Function", "Drain").lower()
+    if "sweep" in gate and "bias" in drain:
+        return TRANSFER, "forcing"
+    if "step" in gate and "sweep" in drain:
+        return OUTPUT, "forcing"
+
+    cols = {str(c).strip() for c in data.columns}
+    if _has_constant_gate_blocks(data):
+        return OUTPUT, "structure"
+    if "GateV" in cols and not any(c.startswith("DrainV") for c in cols):
+        return TRANSFER, "structure"
+
+    # 영숫자가 아닌 모든 문자로 자른다. Test Name 이 'p_output#1@3' 처럼
+    # 기호를 섞어 쓰므로 공백/밑줄만으로 자르면 'output' 이 안 잡힌다.
+    # 부분문자열이 아닌 토큰으로 봐야 'routine' 의 'out' 을 오인하지 않는다.
+    tokens = set(re.split(r"[^a-z0-9]+", f"{info.test_name} {file_name}".lower()))
+    if tokens & {"out", "output"}:
+        return OUTPUT, "name"
+    return TRANSFER, "name"
