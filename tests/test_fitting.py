@@ -50,13 +50,33 @@ def test_auto_fit_recovers_ideal_square_law():
 
 
 def test_auto_fit_prefers_longer_window_on_tie():
-    """완벽한 직선이면 어느 창이든 R^2=1 -> 가장 긴 창을 골라야 한다."""
-    v_g = np.arange(0, -61, -1, dtype=float)
-    i_d = -((v_g * 1e-5) ** 2)
+    """후보 영역 안이 완전한 직선이면 모든 창이 R^2=1 동점 -> 가장 긴 창을 고른다.
+
+    off 바닥을 1e-12 로 깔아 on-영역 필터(|I_D| > 100 x I_off)가 실제로 동작하게 한 뒤,
+    통과한 50점 중 최대 허용 창(50 x 0.60 = 30점)이 선택되는지 정확한 값으로 본다.
+    """
+    v_g = np.arange(20, -61, -1, dtype=float)
+    i_d = -np.maximum(2e-8 * (v_g + 10.0) ** 2 * (v_g < -10), 1e-12)
     fit = auto_fit_sqrt(v_g, i_d)
     assert fit is not None
-    n_candidates = v_g.size
-    assert fit.n_points >= int(n_candidates * 0.55)
+    assert fit.r2 > 0.9999
+    assert fit.n_points == 30
+
+
+def test_auto_fit_on_region_filter_survives_an_exact_zero_reading():
+    """|I_D| 에 정확히 0 이 한 점 섞여도 on-영역 필터가 무력화되면 안 된다.
+
+    I_off 를 0 으로 잡으면 임계가 0 이 되어 노이즈 바닥까지 후보에 들어온다.
+    0 을 제외하고 최솟값을 구해야 한다.
+    """
+    v_g = np.arange(20, -61, -1, dtype=float)
+    i_d = -np.maximum(2e-8 * (v_g + 12.0) ** 2 * (v_g < -12), 1e-12)
+    i_d[5] = 0.0                      # 계측 분해능/클램프로 0 이 찍힌 점
+    fit = auto_fit_sqrt(v_g, i_d)
+    assert fit is not None
+    # off 구간(V_G > -12)이 fit 에 끌려들어오지 않아야 한다
+    assert max(fit.v_start, fit.v_end) <= -12.0
+    assert math.isclose(-fit.intercept / fit.slope, -12.0, abs_tol=0.3)
 
 
 def test_auto_fit_survives_noise():

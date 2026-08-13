@@ -89,12 +89,14 @@ def auto_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray) -> FitResult | None:
     if v_g.size != a.size or v_g.size < FIT_MIN_POINTS:
         return None
 
-    # 스펙 §3.3 그대로 I_off = min|I_D|. tie-break 테스트(경계점에서 정확히 I_D=0 이
-    # 되는 이상적 커브)는 "0 을 뺀 최솟값"을 쓰면 실패한다: 그 최솟값이 0 에 극도로
-    # 가까운 값이 되어 임계값이 지나치게 엄격해지고 on-후보 구간이 필요한 폭보다
-    # 줄어든다. min|I_D| 를 그대로 쓰면 정확히 0 인 점만 자연스럽게 걸러지고
-    # 후보 구간은 최대로 유지된다.
-    i_off = float(np.min(a))
+    # I_off = min|I_D| 이지만 정확히 0 인 점은 제외해야 한다. 계측 분해능 클램프
+    # 등으로 |I_D| 가 정확히 0 인 점이 하나라도 있으면 I_off 가 0 이 되고, 임계값
+    # FIT_ON_REGION_FACTOR x I_off 도 0 이 되어 on-영역 필터가 사실상 무력화된다
+    # (mask 가 a > 0 으로 퇴화해 노이즈 바닥까지 후보 구간에 들어온다).
+    positive = a[a > 0]
+    if positive.size == 0:
+        return None
+    i_off = float(np.min(positive))
 
     mask = a > FIT_ON_REGION_FACTOR * i_off
     run = _longest_run(mask)
