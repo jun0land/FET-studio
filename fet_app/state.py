@@ -51,8 +51,8 @@ def add_files(app: AppState, files: list[tuple[str, bytes]]) -> list[str]:
     if not parsed:
         return warns
 
-    # 기존 소자의 사용자 입력(params)을 보존하면서 새 파일을 병합한다.
-    saved = {g.name: g.params for g in app.devices}
+    # 기존 소자는 app.devices 의 같은 객체를 그대로 이어 쓴다(existing 은 리스트만
+    # 복사) — 아래에서 old.* 를 직접 mutate 하므로 old.params 도 이미 보존된다.
     existing = list(app.devices)
 
     for g in group_files(parsed):
@@ -62,7 +62,7 @@ def add_files(app: AppState, files: list[tuple[str, bytes]]) -> list[str]:
             continue
         if not old.transfer_runs and g.transfer_runs:
             old.transfer_runs, old.transfer_file = g.transfer_runs, g.transfer_file
-        elif g.transfer_runs and g.transfer_file:
+        elif g.transfer_runs and g.transfer_file and g.transfer_file not in old.extra_files:
             old.extra_files.append(g.transfer_file)
         if not old.output_runs and g.output_runs:
             old.output_runs, old.output_file = g.output_runs, g.output_file
@@ -71,9 +71,6 @@ def add_files(app: AppState, files: list[tuple[str, bytes]]) -> list[str]:
         old.warnings.extend(g.warnings)
 
     app.devices = existing
-    for g in app.devices:
-        if g.name in saved:
-            g.params = saved[g.name]
     if app.selected is None and app.devices:
         app.selected = app.devices[0].name
     return warns
