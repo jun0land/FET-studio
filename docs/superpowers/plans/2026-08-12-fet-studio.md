@@ -2555,11 +2555,26 @@ EOF
 - Test: `tests/test_metrics_output.py`
 
 **Interfaces:**
-- Consumes: `curves.OutputCurve`, `curves.OutputBlock`, `constants.DEFAULT_THRESHOLDS`, `DIAG_SLOPE_POINTS`, `DIAG_ORIGIN_FRACTION`
+- Consumes: `curves.OutputCurve`, `curves.OutputBlock`, `constants.DEFAULT_THRESHOLDS`, `DIAG_SLOPE_POINTS`, `DIAG_ORIGIN_FRACTION`, `DIAG_ON_BLOCK_FRACTION`
 - Produces:
-  - `metrics.BlockDiagnostics` — 필드 `v_g: float`, `zero_offset: float | None`, `linearity_r2: float | None`, `saturation_ratio: float | None`, `gate_leak: float | None`, `flags: list[str]`
-  - `metrics.OutputDiagnostics` — 필드 `blocks: list[BlockDiagnostics]`, `worst: dict[str, float | None]`, `flags: list[str]`
+  - `constants.DIAG_ON_BLOCK_FRACTION = 0.01` — **새 상수. `fet_app/constants.py` 에 추가한다.**
+  - `metrics.BlockDiagnostics` — 필드 `v_g: float`, `is_on: bool`, `i_max: float`, `zero_offset: float | None`, `linearity_r2: float | None`, `saturation_ratio: float | None`, `gate_leak: float | None`, `flags: list[str]`
+  - `metrics.OutputDiagnostics` — 필드 `blocks: list[BlockDiagnostics]`, `worst: dict[str, float | None]`, `flags: list[str]`, `i_drive: float | None`
   - `metrics.output_diagnostics(curve: OutputCurve, thresholds: dict | None = None) -> OutputDiagnostics`
+
+**정규화 규약 (스펙 §3.7 — 필수).**
+
+```
+I_drive  = 모든 블록의 max|I_D| 중 최댓값      (소자 온상태 구동전류)
+is_on    = 그 블록의 max|I_D| >= DIAG_ON_BLOCK_FRACTION * I_drive
+```
+
+- `zero_offset`, `gate_leak` 은 **전 블록**에서 계산하되 분모를 `I_drive` 로 쓴다.
+  블록 내 최댓값으로 나누면 꺼진 블록(V_G=0)이 노이즈끼리 나눈 값을 내놓아 오경보가 난다.
+- `linearity_r2`, `saturation_ratio` 는 **`is_on` 인 블록에서만** 계산한다.
+  off-block 에서는 `None` 으로 두고 경고도 달지 않는다 — 꺼진 소자의 곡선 모양은 노이즈다.
+- `worst` 집계는 종전대로: zero_offset·saturation_ratio·gate_leak 은 `max`,
+  linearity_r2 는 `min`. `None` 은 건너뛰고, 전부 `None` 이면 결과도 `None`.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -2590,12 +2605,48 @@ def test_ideal_curve_passes_all_checks():
     curve = OutputCurve(blocks=[_block(-60.0, _ideal(v_d))])
     d = output_diagnostics(curve)
     b = d.blocks[0]
+    assert b.is_on
     assert b.zero_offset < 0.01
     assert b.linearity_r2 > 0.99
     assert b.saturation_ratio < 0.1
     assert b.gate_leak < 0.01
     assert b.flags == []
     assert d.flags == []
+
+
+def test_off_block_does_not_raise_false_alarms():
+    """V_G=0 처럼 꺼진 블록은 전류가 노이즈다. 자기 블록 최댓값으로 나누면
+    비율이 폭주해 멀쩡한 소자가 불량으로 찍힌다 (스펙 §3.7)."""
+    v_d = np.arange(0, -61, -1, dtype=float)
+    on = _block(-60.0, _ideal(v_d, i_sat=-1e-4))
+    # 꺼진 블록: 구동전류의 1/100000 수준, 원점에서도 노이즈가 남아 있다
+    noise = np.full_like(v_d, -6e-10) + np.linspace(0, -1e-10, v_d.size)
+    off = _block(0.0, noise, i_g=np.full_like(v_d, -7e-10))
+    d = output_diagnostics(OutputCurve(blocks=[off, on]))
+
+    off_d, on_d = d.blocks[0], d.blocks[1]
+    assert not off_d.is_on and on_d.is_on
+    # 모양 판정은 생략된다
+    assert off_d.linearity_r2 is None
+    assert off_d.saturation_ratio is None
+    # 오프셋·누설은 계산하되 소자 구동전류로 나눠 미미하게 나온다
+    assert off_d.zero_offset < 0.01
+    assert off_d.gate_leak < 0.01
+    assert off_d.flags == []
+    assert d.flags == []
+    assert d.i_drive == pytest.approx(1e-4, rel=1e-6)
+
+
+def test_off_block_still_reports_real_gate_leak():
+    """꺼진 블록이라도 누설이 진짜 크면 놓치지 않는다."""
+    v_d = np.arange(0, -61, -1, dtype=float)
+    on = _block(-60.0, _ideal(v_d, i_sat=-1e-5))
+    off = _block(0.0, np.full_like(v_d, -1e-10),
+                 i_g=np.full_like(v_d, -5e-7))   # 구동전류의 5 %
+    d = output_diagnostics(OutputCurve(blocks=[off, on]))
+    assert not d.blocks[0].is_on
+    assert d.blocks[0].gate_leak == pytest.approx(0.05, rel=1e-6)
+    assert any("누설" in f for f in d.blocks[0].flags)
 
 
 def test_zero_offset_detected():
@@ -2637,18 +2688,45 @@ def test_gate_leak_detected():
 
 
 def test_worst_aggregates_across_blocks():
+    """집계는 나쁜 쪽을 취한다: 비율은 max, R^2 는 min. None 은 건너뛴다."""
     v_d = np.arange(0, -61, -1, dtype=float)
-    good = _block(0.0, _ideal(v_d, i_sat=-1e-9))
-    bad = _block(-60.0, _ideal(v_d) - 1e-6)
-    d = output_diagnostics(OutputCurve(blocks=[good, bad]))
-    assert d.worst["zero_offset"] == max(b.zero_offset for b in d.blocks)
-    assert d.worst["linearity_r2"] == min(b.linearity_r2 for b in d.blocks)
+    clean = _block(-40.0, _ideal(v_d, i_sat=-5e-5))
+    offset = _block(-60.0, _ideal(v_d, i_sat=-1e-4) - 5e-6)
+    d = output_diagnostics(OutputCurve(blocks=[clean, offset]))
+    zeros = [b.zero_offset for b in d.blocks if b.zero_offset is not None]
+    lins = [b.linearity_r2 for b in d.blocks if b.linearity_r2 is not None]
+    assert d.worst["zero_offset"] == max(zeros)
+    assert d.worst["linearity_r2"] == min(lins)
     assert d.flags
 
 
-def test_custom_thresholds_are_used():
+def test_worst_is_none_when_every_block_is_none():
+    """모두 꺼진 블록이면 모양 지표 집계는 None 이어야 한다 (0.0 아님)."""
+    v_d = np.arange(0, -61, -1, dtype=float)
+    a = _block(0.0, np.full_like(v_d, -1e-12))
+    d = output_diagnostics(OutputCurve(blocks=[a]))
+    # 단일 블록이면 그 블록이 곧 I_drive 이므로 is_on 이다 — 모양 지표가 나온다
+    assert d.blocks[0].is_on
+    assert d.worst["linearity_r2"] is not None
+
+
+def test_custom_thresholds_override_defaults_key_by_key():
+    """일부 키만 넘기면 나머지는 기본값을 유지한다."""
     v_d = np.arange(0, -61, -1, dtype=float)
     curve = OutputCurve(blocks=[_block(-60.0, _ideal(v_d))])
+    # 기본값으로는 무경고
+    assert output_diagnostics(curve).blocks[0].flags == []
+    # 선형성 하한만 불가능한 값으로 올리면 그 항목만 걸린다
+    d = output_diagnostics(curve, thresholds={"linearity_r2": 1.1})
+    flags = d.blocks[0].flags
+    assert len(flags) == 1
+    assert "선형" in flags[0]
+
+
+def test_all_thresholds_can_fire_together():
+    v_d = np.arange(0, -61, -1, dtype=float)
+    i_d = _ideal(v_d) - 1e-6                  # 원점에서 안 떨어짐
+    curve = OutputCurve(blocks=[_block(-60.0, i_d, i_g=np.full_like(v_d, -1e-7))])
     d = output_diagnostics(curve, thresholds={"zero_offset": 0.0,
                                               "linearity_r2": 1.1,
                                               "saturation": 0.0,
@@ -2659,11 +2737,26 @@ def test_custom_thresholds_are_used():
 def test_real_example_runs(example_dir):
     from fet_app.grouping import parse_file
     pf = parse_file((example_dir / "1-1 out.xls").read_bytes(), "1-1 out.xls")
-    d = output_diagnostics(pf.output)
+    d = output_diagnostics(pf.latest.output)
     assert len(d.blocks) == 4
+    assert d.i_drive is not None and d.i_drive > 0
     for b in d.blocks:
         assert b.zero_offset is not None
         assert b.gate_leak is not None
+
+
+def test_real_example_off_block_is_not_flagged(example_dir):
+    """1-1 out.xls 의 V_G=0 블록은 꺼져 있다. 예전 정규화로는 0V 오프셋 57 %,
+    누설 100 % 가 나와 멀쩡한 소자가 불량으로 찍혔다."""
+    from fet_app.grouping import parse_file
+    pf = parse_file((example_dir / "1-1 out.xls").read_bytes(), "1-1 out.xls")
+    d = output_diagnostics(pf.latest.output)
+    off = next(b for b in d.blocks if b.v_g == 0.0)
+    assert not off.is_on
+    assert off.zero_offset < 0.01
+    assert off.gate_leak < 0.01
+    assert off.linearity_r2 is None and off.saturation_ratio is None
+    assert off.flags == []
 ```
 
 - [ ] **Step 2: 실패 확인**
@@ -2689,10 +2782,12 @@ from fet_app.curves import OutputCurve, TransferCurve
 @dataclass
 class BlockDiagnostics:
     v_g: float
-    zero_offset: float | None = None       # |I_D(V_D=0)| / max|I_D|
-    linearity_r2: float | None = None      # 원점 구간 선형 fit R^2
-    saturation_ratio: float | None = None  # 말단 기울기 / 원점 기울기
-    gate_leak: float | None = None         # max|I_G| / max|I_D|
+    is_on: bool = False                    # max|I_D| >= 1 % of I_drive
+    i_max: float = 0.0                     # 이 블록의 max|I_D|
+    zero_offset: float | None = None       # |I_D(V_D=0)| / I_drive
+    linearity_r2: float | None = None      # 원점 구간 선형 fit R^2 (on-block 만)
+    saturation_ratio: float | None = None  # 말단 기울기 / 원점 기울기 (on-block 만)
+    gate_leak: float | None = None         # max|I_G| / I_drive
     flags: list[str] = field(default_factory=list)
 
 
@@ -2701,6 +2796,7 @@ class OutputDiagnostics:
     blocks: list[BlockDiagnostics] = field(default_factory=list)
     worst: dict = field(default_factory=dict)
     flags: list[str] = field(default_factory=list)
+    i_drive: float | None = None           # 소자 온상태 구동전류 (정규화 분모)
 
 
 def _edge_slope(v_d: np.ndarray, i_d: np.ndarray, at_origin: bool) -> float | None:
@@ -2712,8 +2808,21 @@ def _edge_slope(v_d: np.ndarray, i_d: np.ndarray, at_origin: bool) -> float | No
     return float(slope)
 
 
-def _diagnose_block(block, t: dict) -> BlockDiagnostics:
-    d = BlockDiagnostics(v_g=block.v_g)
+def _block_i_max(block) -> float:
+    df = block.forward
+    if df is None or df.empty:
+        return 0.0
+    a = np.abs(df["I_D"].to_numpy(dtype=float))
+    return float(np.max(a)) if a.size else 0.0
+
+
+def _diagnose_block(block, t: dict, i_drive: float) -> BlockDiagnostics:
+    """i_drive = 소자 전체의 온상태 구동전류. 블록 내 최댓값으로 나누면
+    꺼진 블록(V_G=0)이 노이즈끼리 나눈 값을 내놓아 오경보가 난다 (스펙 §3.7)."""
+    i_max = _block_i_max(block)
+    is_on = i_drive > 0 and i_max >= DIAG_ON_BLOCK_FRACTION * i_drive
+    d = BlockDiagnostics(v_g=block.v_g, is_on=is_on, i_max=i_max)
+
     df = block.forward
     if df is None or df.empty:
         d.flags.append("데이터 없음")
@@ -2722,18 +2831,28 @@ def _diagnose_block(block, t: dict) -> BlockDiagnostics:
     v_d = df["V_D"].to_numpy(dtype=float)
     i_d = df["I_D"].to_numpy(dtype=float)
     i_g = df["I_G"].to_numpy(dtype=float)
-    i_max = float(np.max(np.abs(i_d))) if i_d.size else 0.0
 
-    # 1) 0 V 오프셋
-    if i_max > 0:
+    # 1) 0 V 오프셋 — 전 블록. 분모는 소자 구동전류.
+    if i_drive > 0 and v_d.size:
         j = int(np.argmin(np.abs(v_d)))
-        d.zero_offset = float(abs(i_d[j]) / i_max)
+        d.zero_offset = float(abs(i_d[j]) / i_drive)
         if d.zero_offset > t["zero_offset"]:
             d.flags.append(
                 f"0 V 오프셋 {d.zero_offset * 100:.2f} % (> {t['zero_offset'] * 100:g} %)"
             )
 
-    # 2) 원점 근처 선형성
+    # 4) 게이트 누설 — 전 블록. 꺼진 상태의 누설도 실제 문제라 건너뛰지 않는다.
+    if i_drive > 0 and i_g.size:
+        d.gate_leak = float(np.max(np.abs(i_g)) / i_drive)
+        if d.gate_leak > t["gate_leak"]:
+            d.flags.append(
+                f"게이트 누설 {d.gate_leak * 100:.2f} % (> {t['gate_leak'] * 100:g} %)"
+            )
+
+    # 2)·3) 곡선 모양 판정은 켜진 블록에서만. 꺼진 소자의 개형은 노이즈다.
+    if not is_on:
+        return d
+
     span = float(np.max(np.abs(v_d))) if v_d.size else 0.0
     if span > 0:
         near = np.abs(v_d) <= span * DIAG_ORIGIN_FRACTION
@@ -2746,7 +2865,6 @@ def _diagnose_block(block, t: dict) -> BlockDiagnostics:
                     "— 컨택트 저항 의심"
                 )
 
-    # 3) 포화 도달
     s0 = _edge_slope(v_d, i_d, at_origin=True)
     s1 = _edge_slope(v_d, i_d, at_origin=False)
     if s0 not in (None, 0.0) and s1 is not None:
@@ -2754,14 +2872,6 @@ def _diagnose_block(block, t: dict) -> BlockDiagnostics:
         if d.saturation_ratio > t["saturation"]:
             d.flags.append(
                 f"미포화: 말단/원점 기울기비 {d.saturation_ratio:.3f} (> {t['saturation']:g})"
-            )
-
-    # 4) 게이트 누설
-    if i_max > 0 and i_g.size:
-        d.gate_leak = float(np.max(np.abs(i_g)) / i_max)
-        if d.gate_leak > t["gate_leak"]:
-            d.flags.append(
-                f"게이트 누설 {d.gate_leak * 100:.2f} % (> {t['gate_leak'] * 100:g} %)"
             )
 
     return d
@@ -2778,7 +2888,9 @@ def output_diagnostics(curve: OutputCurve,
         out.flags.append("output 데이터가 없습니다.")
         return out
 
-    out.blocks = [_diagnose_block(b, t) for b in curve.blocks]
+    i_drive = max((_block_i_max(b) for b in curve.blocks), default=0.0)
+    out.i_drive = i_drive if i_drive > 0 else None
+    out.blocks = [_diagnose_block(b, t, i_drive) for b in curve.blocks]
 
     def _agg(attr: str, fn):
         vals = [getattr(b, attr) for b in out.blocks if getattr(b, attr) is not None]
@@ -3948,14 +4060,29 @@ EOF
 ## Task 14: MANUAL.md 와 매뉴얼 로더
 
 **Files:**
-- Create: `MANUAL.md`, `fet_app/manual.py`
+- Create: `MANUAL.md`, `METHODS.md`, `fet_app/manual.py`
 - Test: `tests/test_manual.py`
 
 **Interfaces:**
 - Consumes: `constants.*`
-- Produces: `manual.manual_path() -> Path`, `manual.load_manual() -> str`
+- Produces:
+  - `manual.DOCS: dict[str, str]` — 탭 이름 → 파일명. 정확히 `{"이용 방법": "MANUAL.md", "분석 방법": "METHODS.md"}`
+  - `manual.doc_path(file_name: str) -> Path`
+  - `manual.load_doc(file_name: str) -> str` — 없으면 안내 문구를 담은 대체 텍스트
+  - `manual.load_manual() -> str` (= `load_doc("MANUAL.md")`), `manual.load_methods() -> str` (= `load_doc("METHODS.md")`)
 
-**주의:** 매뉴얼은 사용자가 수식을 대조·교정하기 위한 단일 소스다. 앱은 이 파일을 읽어 렌더하므로 두 벌이 어긋날 수 없다. 아래 테스트가 **상수 누락을 강제로 잡는다** — 상수를 바꾸면 매뉴얼도 반드시 같이 바뀐다.
+**문서를 둘로 나누는 이유 (사용자 확정).** 찾는 목적이 다르다 — 쓰다가 막혔을 때 보는
+문서와, 나온 숫자가 맞는지 검증할 때 보는 문서. 앱은 `st.tabs(["이용 방법", "분석 방법"])`
+로 보여준다 (Task 18 이 배선).
+
+| 파일 | 탭 | 담는 것 |
+|---|---|---|
+| `MANUAL.md` | 이용 방법 | 업로드, 명명법이 필요 없는 이유, 측정 런 선택, 패널 사용법, 내보내기, 문제 해결 |
+| `METHODS.md` | 분석 방법 | **모든 수식·물리상수·알고리즘 상수·판정 임계값·가정과 한계** |
+
+**주의:** `METHODS.md` 는 사용자가 수식을 대조·교정하기 위한 단일 소스다. 앱이 이 파일을
+읽어 렌더하므로 두 벌이 어긋날 수 없다. 아래 테스트가 **상수 누락을 강제로 잡는다** —
+상수를 바꾸면 `METHODS.md` 도 반드시 같이 바뀐다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -3964,16 +4091,28 @@ EOF
 import re
 
 from fet_app import constants
-from fet_app.manual import load_manual, manual_path
+from fet_app.manual import DOCS, doc_path, load_doc, load_manual, load_methods
 
 
-def test_manual_file_exists():
-    assert manual_path().is_file()
+def test_both_docs_exist():
+    assert DOCS == {"이용 방법": "MANUAL.md", "분석 방법": "METHODS.md"}
+    for file_name in DOCS.values():
+        assert doc_path(file_name).is_file(), file_name
 
 
-def test_manual_contains_every_algorithm_constant():
-    """상수를 바꾸면 매뉴얼도 같이 바뀌게 강제한다 (스펙 §8)."""
-    text = load_manual()
+def test_load_doc_matches_named_loaders():
+    assert load_doc("MANUAL.md") == load_manual()
+    assert load_doc("METHODS.md") == load_methods()
+
+
+def test_missing_doc_returns_placeholder_not_crash():
+    text = load_doc("NOPE.md")
+    assert "NOPE.md" in text
+
+
+def test_methods_contains_every_algorithm_constant():
+    """상수를 바꾸면 METHODS.md 도 같이 바뀌게 강제한다 (스펙 §8)."""
+    text = load_methods()
     required = [
         "8.854",                                   # EPSILON_0
         str(constants.FIT_ON_REGION_FACTOR).rstrip("0").rstrip("."),  # 100
@@ -3984,30 +4123,38 @@ def test_manual_contains_every_algorithm_constant():
         str(constants.DIAG_SLOPE_POINTS),          # 5
     ]
     for token in required:
-        assert token in text, f"매뉴얼에 '{token}' 이 없습니다"
+        assert token in text, f"METHODS.md 에 '{token}' 이 없습니다"
 
 
-def test_manual_contains_dielectric_presets():
-    text = load_manual()
+def test_methods_contains_dielectric_presets():
+    text = load_methods()
     for name, eps in constants.DIELECTRIC_PRESETS.items():
-        assert str(eps) in text, f"{name} 의 eps_r {eps} 가 매뉴얼에 없습니다"
+        assert str(eps) in text, f"{name} 의 eps_r {eps} 가 METHODS.md 에 없습니다"
 
 
-def test_manual_contains_thresholds():
-    text = load_manual()
+def test_methods_contains_thresholds():
+    text = load_methods()
     assert "1 %" in text or "1%" in text
     assert "0.99" in text
     assert "0.1" in text
 
 
-def test_manual_contains_all_formulas():
-    text = load_manual()
+def test_methods_contains_all_formulas():
+    text = load_methods()
     for key in ["C_ox", "mu_sat", "V_th", "I_on", "SS", "ΔV_th"]:
         assert key in text, key
 
 
-def test_manual_documents_assumptions():
-    text = load_manual()
+def test_methods_documents_output_normalization():
+    """진단 정규화 기준 — 오경보 수정의 근거라 반드시 문서화한다 (스펙 §3.7)."""
+    text = load_methods()
+    assert "I_drive" in text
+    assert "on-block" in text or "켜진 블록" in text
+    assert "1 %" in text or "0.01" in text
+
+
+def test_methods_documents_assumptions():
+    text = load_methods()
     assert "가정과 한계" in text
     assert "과소평가" in text
 
@@ -4027,9 +4174,16 @@ def test_manual_documents_multi_run_handling():
     assert "Initial Run" in text
 
 
-def test_manual_has_no_placeholders():
+def test_manual_documents_export_backgrounds():
     text = load_manual()
-    assert not re.search(r"\bTBD\b|\bTODO\b", text)
+    assert "투명" in text
+    assert "PNG" in text and "JPG" in text
+
+
+def test_no_placeholders_in_either_doc():
+    for file_name in DOCS.values():
+        text = load_doc(file_name)
+        assert not re.search(r"\bTBD\b|\bTODO\b", text), file_name
 ```
 
 - [ ] **Step 2: 실패 확인**
@@ -4041,35 +4195,53 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'fet_app.manual'`
 
 `fet_app/manual.py`:
 ```python
-"""MANUAL.md 단일 소스 로더.
+"""문서 로더. 저장소 루트의 마크다운을 앱이 그대로 읽어 렌더한다 (스펙 §8).
 
-앱의 [매뉴얼] 패널과 저장소의 MANUAL.md 가 같은 파일이라 어긋날 수 없다 (스펙 §8).
+문서와 앱이 같은 파일을 보므로 두 벌이 어긋날 수 없다.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+# 탭 이름 -> 파일명. Task 18 의 st.tabs 가 이 순서를 그대로 쓴다.
+DOCS = {
+    "이용 방법": "MANUAL.md",
+    "분석 방법": "METHODS.md",
+}
 
-def manual_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "MANUAL.md"
+_ROOT = Path(__file__).resolve().parent.parent
+
+
+def doc_path(file_name: str) -> Path:
+    return _ROOT / file_name
+
+
+def load_doc(file_name: str) -> str:
+    path = doc_path(file_name)
+    if not path.is_file():
+        return f"# 문서 없음\n\n`{file_name}` 를 찾지 못했습니다."
+    return path.read_text(encoding="utf-8")
 
 
 def load_manual() -> str:
-    path = manual_path()
-    if not path.is_file():
-        return "# 매뉴얼\n\nMANUAL.md 를 찾지 못했습니다."
-    return path.read_text(encoding="utf-8")
+    return load_doc("MANUAL.md")
+
+
+def load_methods() -> str:
+    return load_doc("METHODS.md")
 ```
 
-`MANUAL.md` — 스펙 §3, §8 의 내용을 전부 옮긴다. 최소한 아래 구조와 내용을 포함해야 하며, 테스트가 상수 누락을 잡는다:
+### `MANUAL.md` — 이용 방법 탭
+
+파일 형식·자동 인식·측정 런 선택·패널 사용법·내보내기·문제 해결을 담는다.
+**수식은 넣지 않는다** — 필요하면 "분석 방법 탭 참조" 라고만 쓴다.
 
 ```markdown
-# FET Studio 사용 매뉴얼
+# FET Studio 이용 방법
 
-이 문서는 앱이 계산하는 **모든 수식·상수·임계값**을 담는다. 앱의 [매뉴얼] 패널은
-이 파일을 그대로 읽어 렌더하므로 두 벌이 어긋나지 않는다.
-값이 연구실 관례와 다르면 이 문서를 근거로 수정을 요청하면 된다.
+Keithley 측정 파일을 올리면 transfer / output curve 를 스스로 구분해 그래프를 그리고
+성능 지표를 계산한다. 계산에 쓰인 수식과 판정 기준은 **[분석 방법] 탭**에 있다.
 
 ## 1. 파일 형식과 자동 인식
 
@@ -4114,7 +4286,73 @@ Keithley 4200-SCS / KTEI 가 내보낸 `.xls` (구형 OLE2) 및 `.xlsx`.
 같은 종류의 **파일**이 두 개 들어오면 첫 번째 파일만 쓰고 나머지는 미사용으로 보관한다.
 (한 파일 안의 여러 런은 이와 별개로 모두 보존한다 — §1.4)
 
-## 2. 소자 파라미터
+## 2. 소자 파라미터 입력
+
+좌측 패널에서 채널 폭 **W**, 채널 길이 **L**, 유전체 **ε_r** 과 **두께 d** 를 넣는다.
+비워두면 우측 하단 [전역 기본값] 에 넣은 값을 상속한다. 웨이퍼 한 장을 통째로 올렸다면
+전역값만 한 번 채우면 되고, 특정 소자만 다르면 그 소자 패널에서 덮어쓴다.
+
+네 값이 다 채워지면 C_ox 가 자동 계산돼 패널에 뜬다. 하나라도 비면 μ_sat 은 계산되지
+않고 V_th 만 나온다. 계산식은 [분석 방법] 탭 참조.
+
+V_DS 는 파일의 Settings 에서 자동으로 읽으므로 입력할 필요가 없다.
+
+## 3. Fit 구간
+
+기본은 자동이다. √|I_D| 가 가장 곧게 뻗은 구간을 찾아 그래프에 직선과 음영으로 표시한다.
+마음에 들지 않으면 [수동 지정] 을 켜고 V_G 범위를 숫자로 넣으면 즉시 다시 계산한다.
+탐색 규칙은 [분석 방법] 탭 참조.
+
+## 4. 그래프 서식과 미리보기 배율
+
+그래프는 논문용으로 10 × 8 inch 실측 크기로 만들어진다. 화면이 좁으면 그대로는 안 들어가므로
+표시용으로만 축소해서 보여준다. [서식 · 크기] 에서 자동/수동을 고를 수 있고,
+**내보내는 파일은 항상 실측 크기라 미리보기 배율의 영향을 받지 않는다.**
+
+서식(색·선 두께·축 범위·인셋 위치)은 [프리셋] 에서 JSON 으로 저장해 다른 소자에 그대로
+적용할 수 있다. 소자 파라미터와 진단 임계값은 측정 조건이라 프리셋에 들어가지 않는다.
+
+## 5. 내보내기
+
+| 형식 | 배경 | 용도 |
+|---|---|---|
+| PNG | **투명** | PPT · 포스터에 얹기 |
+| JPG | **흰색** | 문서 · 메일 |
+| SVG | 투명 (벡터) | Illustrator 재편집 |
+| PDF | 흰색 (벡터) | 논문 투고 |
+
+배율 1× / 2× / 4× 를 고를 수 있다. 4× 면 3840 × 3072 px.
+[전체 ZIP] 은 소자별 폴더(`1-3/transfer.png`)에 그래프·가공 원데이터를 담고 요약표를 함께 넣는다.
+요약표는 CSV(엑셀에서 한글이 깨지지 않게 BOM 포함) 와 XLSX 로 받을 수 있다.
+
+투명 PNG 는 축과 글자가 검정이므로 어두운 슬라이드에 얹으면 보이지 않는다.
+
+## 6. 자주 겪는 문제
+
+- **커브 종류가 잘못 잡혔다** — 소자 패널에 판정 근거가 뜬다. "파일명으로 판정" 이라고
+  나오면 Settings 를 못 읽은 것이니 원본 파일을 확인한다.
+- **μ_sat 이 안 나온다** — W / L / ε_r / d 중 빈 항목이 있다. 전역 기본값을 채우면 된다.
+- **fit R² 가 낮다는 경고** — 자동 구간이 서브스레숄드까지 끌고 들어간 경우다.
+  수동으로 포화 영역만 지정한다.
+- **소자가 잘못 묶였다** — 파일명 stem 기준이라 접미 토큰이 예상 밖이면 갈릴 수 있다.
+  소자 리스트에서 확인하고 파일명을 정리한 뒤 다시 올린다.
+- **이미지 내보내기가 실패한다** — 서버에 렌더러가 없는 경우다. HTML 로 대체 저장되므로
+  브라우저에서 열어 인쇄하면 된다.
+```
+
+### `METHODS.md` — 분석 방법 탭
+
+**모든 수식·상수·임계값이 여기 모인다.** 테스트가 상수 누락을 잡으므로
+`fet_app/constants.py` 를 고치면 이 파일도 반드시 같이 고쳐야 한다.
+
+```markdown
+# FET Studio 분석 방법
+
+이 문서는 앱이 계산하는 **모든 수식·상수·판정 기준**을 담는다.
+앱은 이 파일을 그대로 읽어 렌더하므로 문서와 계산이 어긋나지 않는다.
+값이 연구실 관례와 다르면 이 문서를 근거로 수정을 요청하면 된다.
+
+## 1. 소자 파라미터
 
 | 기호 | 의미 | UI 단위 | 내부 단위 | 환산 |
 |---|---|---|---|---|
@@ -4123,7 +4361,7 @@ Keithley 4200-SCS / KTEI 가 내보낸 `.xls` (구형 OLE2) 및 `.xlsx`.
 | ε_r | 유전상수 | — | — | — |
 | d | 유전체 두께 | nm | cm | ×1e-7 |
 
-### 2.1 산화막 정전용량 C_ox
+### 1.1 산화막 정전용량 C_ox
 
 ```
 C_ox = ε₀ · ε_r / d          [F/cm²]
@@ -4134,9 +4372,9 @@ C_ox = ε₀ · ε_r / d          [F/cm²]
 
 검산: SiO₂ 300 nm → C_ox = 3.9 × 8.854e-14 / 300e-7 = 1.151e-8 F/cm² = **11.51 nF/cm²**
 
-## 3. Transfer 지표
+## 2. Transfer 지표
 
-### 3.1 포화 이동도 μ_sat 과 문턱 전압 V_th
+### 2.1 포화 이동도 μ_sat 과 문턱 전압 V_th
 
 포화영역 제곱법칙:
 ```
@@ -4151,7 +4389,7 @@ V_th  = −b / m                      [V]
 p-type 이라 m < 0 이지만 m² 이므로 μ_sat > 0.
 함께 보고하는 값: fit 의 R², 사용된 V_G 구간, 구간 내 점 개수.
 
-### 3.2 fit 구간 자동 탐색
+### 2.2 fit 구간 자동 탐색
 
 대상은 **forward branch 의 √|I_D| vs V_G**.
 
@@ -4164,12 +4402,12 @@ p-type 이라 m < 0 이지만 m² 이므로 μ_sat > 0.
 숫자로 V_G 범위를 지정하면 자동 탐색을 끄고 그 구간으로 재계산한다.
 reverse branch 도 같은 알고리즘을 독립 적용한다.
 
-### 3.3 On/Off 전류비
+### 2.3 On/Off 전류비
 ```
 I_on / I_off = max|I_D| / min|I_D|      (forward branch 전 구간, 0 제외)
 ```
 
-### 3.4 Subthreshold swing SS
+### 2.4 Subthreshold swing SS
 ```
 SS = min( dV_G / d log₁₀|I_D| )        [V/dec] → ×1000 → [mV/dec]
 ```
@@ -4177,27 +4415,46 @@ SS = min( dV_G / d log₁₀|I_D| )        [V/dec] → ×1000 → [mV/dec]
 탐색 범위는 `I_off × 10` 이상 `I_on / 10` 이하인 서브스레숄드 구간,
 국소 기울기는 **5 점 이동 최소자승 회귀**로 구한다.
 
-### 3.5 히스테리시스 ΔV_th
+### 2.5 히스테리시스 ΔV_th
 ```
 ΔV_th = V_th(reverse) − V_th(forward)   [V]
 ```
-reverse 도 §3.2 와 같은 방식으로 독립 fit 한다.
+reverse 도 §2.2 와 같은 방식으로 독립 fit 한다.
 
-## 4. Output 진단
+## 3. Output 진단
 
 각 V_G 블록마다 계산하고, 블록 중 최악값을 소자 대표값으로 보고한다.
 임계값은 앱에서 조정할 수 있으며 아래는 기본값이다.
 
-| 항목 | 정의 | 기본 임계 | 의미 |
-|---|---|---|---|
-| 0 V 오프셋 | `\|I_D(V_D=0)\| / max\|I_D\|` | > 1 % | 원점에서 출발하지 않음 |
-| 원점 선형성 | `\|V_D\| ≤ 스윕폭의 10 %` 구간 선형 fit R² | < 0.99 | S자 개형 = 컨택트 저항 / Schottky 장벽 |
-| 포화 도달 | `(dI_D/dV_D)_말단 / (dI_D/dV_D)_원점` | > 0.1 | 미포화 |
-| 게이트 누설 | `max\|I_G\| / max\|I_D\|` | > 1 % | 게이트 누설 과다 |
+### 3.1 정규화 기준 — 왜 블록 최댓값으로 나누지 않는가
 
-말단·원점 기울기는 각각 양 끝 **5 점**의 선형 회귀 기울기다.
+`V_G = 0 V` 블록은 소자가 꺼져 있어 전류가 노이즈 수준이다(예제에서 ~1 nA).
+비율을 **그 블록 안의** `max|I_D|` 로 재면 노이즈끼리 나눈 값이 나와,
+멀쩡한 소자가 0 V 오프셋 57 % · 게이트 누설 100 % 로 찍힌다.
+그래서 **소자 전체의 구동전류**로 정규화한다.
 
-## 5. 가정과 한계
+```
+I_drive = 모든 블록의 max|I_D| 중 최댓값        (소자 온상태 구동전류)
+on-block = 그 블록의 max|I_D| >= 0.01 x I_drive  (= 켜진 블록)
+```
+
+### 3.2 진단 4종
+
+| 항목 | 정의 | 대상 | 기본 임계 | 의미 |
+|---|---|---|---|---|
+| 0 V 오프셋 | `\|I_D(V_D=0)\| / I_drive` | 전 블록 | > 1 % | 원점에서 출발하지 않음 |
+| 원점 선형성 | `\|V_D\| ≤ 스윕폭의 10 %` 구간 선형 fit R² | **켜진 블록만** | < 0.99 | S자 개형 = 컨택트 저항 / Schottky 장벽 |
+| 포화 도달 | `(dI_D/dV_D)_말단 / (dI_D/dV_D)_원점` | **켜진 블록만** | > 0.1 | 미포화 |
+| 게이트 누설 | `max\|I_G\| / I_drive` | 전 블록 | > 1 % | 게이트 누설 과다 |
+
+- 말단·원점 기울기는 각각 양 끝 **5 점**의 선형 회귀 기울기다.
+- 꺼진 블록의 **선형성·포화는 계산하지 않고 경고도 달지 않는다.** 꺼진 소자의
+  곡선 개형은 노이즈라 판정 대상이 아니다. UI 에는 "off (진단 생략)" 으로 표시된다.
+- 꺼진 블록에서도 **0 V 오프셋과 게이트 누설은 계산한다.** 꺼진 상태의 큰 누설은
+  실제 문제이고, `I_drive` 로 나누므로 노이즈가 부풀지 않는다.
+- 집계는 나쁜 쪽을 취한다: 비율 3종은 `max`, 선형성 R² 는 `min`.
+
+## 4. 가정과 한계
 
 - μ_sat 은 **포화영역 제곱법칙**을 가정한다. 접촉저항이 크거나 이동도가 게이트 전압에
   의존하면 **과소평가**된다.
@@ -4208,27 +4465,17 @@ reverse 도 §3.2 와 같은 방식으로 독립 fit 한다.
 - I_on/I_off 는 스윕 범위에 의존하므로 다른 범위로 측정한 소자와 직접 비교하면 안 된다.
 - 극성은 데이터에서 자동 판별한다. p-type 이 아닌 데이터가 들어오면 경고만 띄운다.
 
-## 6. 그래프
+## 5. 그래프 규약
 
 - 논문용 흰 배경, 4면 박스 mirror ticks, ticks inside, 그리드 없음.
 - 눈금 지수는 `1E-11` 형식.
 - 크기는 Origin 방식 2단계: Background(inch) → Graph(% of background).
 - Transfer: 좌 축 `|I_D| (A)` log, 우 축 `√|I_D| (A^0.5)` linear.
   forward 실선 / reverse 파선. 우축에 fit 직선·구간 음영·V_th 절편.
+  좌축 제목에 절댓값 기호를 쓰는 것은 p-type 이라 I_D 가 음수이고 log 축에 |I_D| 를
+  그리는 것이 FET 문헌의 일반 표기이기 때문이다.
 - Output: `V_D (V)` vs `I_D (A)` 모두 linear.
   V_G 순서대로 명도가 단조 감소하는 단색 그라데이션 — 흑백 인쇄에서도 순서가 남는다.
-
-## 7. 내보내기
-
-| 형식 | 배경 | 용도 |
-|---|---|---|
-| PNG | 완전 투명 | PPT·포스터 합성 |
-| JPG | 흰색 | 문서·메일 |
-| SVG | 투명(벡터) | Illustrator 재편집 |
-| PDF | 흰색(벡터) | 논문 투고 |
-
-배율 1× / 2× / 4× 선택. ZIP 내부는 소자별 폴더(`1-3/transfer.png`).
-요약표는 CSV(UTF-8 BOM) / XLSX. 가공 원데이터 CSV 에는 √|I_D| 와 fit 직선값이 포함된다.
 ```
 
 - [ ] **Step 4: 테스트 통과 확인**
@@ -4765,9 +5012,11 @@ def render_app() -> None:
     if not app.devices:
         st.info("Keithley `.xls` 파일을 올리면 transfer/output 을 자동으로 구분합니다. "
                 "파일 이름은 아무렇게나 지어도 됩니다.")
-        with st.expander("매뉴얼"):
-            from fet_app.manual import load_manual
-            st.markdown(load_manual())
+        with st.expander("문서"):
+            from fet_app.manual import DOCS, load_doc
+            for tab, (name, file_name) in zip(st.tabs(list(DOCS)), DOCS.items()):
+                with tab:
+                    st.markdown(load_doc(file_name))
         return
 
     if app.show_summary:
@@ -5417,9 +5666,11 @@ def render_summary_table(app) -> None:
         app.show_summary = False
         st.rerun()
 
-    with st.expander("매뉴얼"):
-        from fet_app.manual import load_manual
-        st.markdown(load_manual())
+    with st.expander("문서"):
+        from fet_app.manual import DOCS, load_doc
+        for tab, (name, file_name) in zip(st.tabs(list(DOCS)), DOCS.items()):
+            with tab:
+                st.markdown(load_doc(file_name))
 ```
 
 `fet_app/ui/export_ui.py`:
@@ -5793,7 +6044,7 @@ PY
 | §6.1 비대칭 3열 | 16, 17, 18 |
 | §6.2 브레이크포인트 4단계 | 16 |
 | §7 내보내기 | 13, 18 |
-| §8 매뉴얼 | 14 |
+| §8 매뉴얼 2탭 분리 | 14, 18 |
 | §9 모듈 구조 | 전 태스크 |
 | §10 테스트 | 각 태스크 + 19 |
 | §11 배포 | 1, 19 |
