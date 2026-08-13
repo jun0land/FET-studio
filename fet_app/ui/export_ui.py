@@ -1,4 +1,12 @@
-"""내보내기 UI (스펙 §7)."""
+"""내보내기 UI (스펙 §7).
+
+아코디언으로 감싸지 않는다 — 내보내기는 세션마다 여러 번 쓰는 기능이라
+매번 펼쳐야 하는 아코디언은 방해가 된다. 크기·배율/프리셋(panel_style 에서
+옮겨옴)만 부차적인 설정이라 작은 접이식으로 둔다.
+
+이미지 렌더가 실패하면 HTML 로 조용히 바꿔치기하지 않는다 — 사용자가
+PNG/JPG 를 받았다고 착각할 수 있다. 실패는 실패로 보여준다.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +15,7 @@ import streamlit as st
 from fet_app import export
 from fet_app.figure_output import output_figure
 from fet_app.figure_transfer import transfer_figure
+from fet_app.ui import panel_style
 from fet_app.ui.summary import (
     _has_output_data, _has_transfer_data, _output_settings, _transfer_settings,
     compute, effective_group,
@@ -18,7 +27,7 @@ _FMT_KEY = {"PNG (투명)": "png", "JPG (흰 배경)": "jpg", "SVG": "svg", "PDF
 _KIND_LABEL = {"transfer": "Transfer", "output": "Output"}
 _MIME = {
     "png": "image/png", "jpg": "image/jpeg", "svg": "image/svg+xml",
-    "pdf": "application/pdf", "html": "text/html",
+    "pdf": "application/pdf",
 }
 
 
@@ -46,15 +55,6 @@ def _device_filename(device: str, kind: str, ext: str) -> str:
     return f"{device}_{kind}.{ext}"
 
 
-def _render_or_fallback(fig, fmt: str, scale: int) -> tuple[bytes, str, bool]:
-    """(data, ext, rendered_ok). kaleido 를 못 띄우면 HTML 로 대체 — 전체 ZIP
-    경로(§7)와 같은 정책을 개별 다운로드에도 적용한다."""
-    try:
-        return export.figure_bytes(fig, fmt, scale), fmt, True
-    except export.KaleidoUnavailable:
-        return fig.to_html(include_plotlyjs="cdn").encode("utf-8"), "html", False
-
-
 def _build_device_figure(app, g, kind: str):
     if kind == "transfer":
         tm, _od = compute(app, g)
@@ -64,24 +64,26 @@ def _build_device_figure(app, g, kind: str):
 
 def _device_kind_download(app, g, kind: str, fmt: str, scale: int) -> None:
     """버튼 클릭 시에만 이미지를 만든다 — 렌더가 비싸므로 매 rerun 마다 새로
-    만들지 않고 session_state 에 결과를 담아 재사용한다(ZIP 버튼과 같은 패턴)."""
+    만들지 않고 session_state 에 결과를 담아 재사용한다. 라벨은 'Transfer'/
+    'Output' 만 쓴다. 형식·배율이 바뀌면 캐시 키가 달라져 자동으로 다시
+    만들어진다.
+    """
     label = _KIND_LABEL[kind]
-    blob_key = f"exp_dev_blob_{g.name}_{kind}"
-    if st.button(f"{label} 이미지 만들기", key=f"exp_dev_btn_{g.name}_{kind}",
-                use_container_width=True):
-        fig = _build_device_figure(app, g, kind)
-        data, ext, ok = _render_or_fallback(fig, fmt, scale)
-        st.session_state[blob_key] = (data, ext)
-        if not ok:
-            st.warning(f"{label} 이미지 렌더 실패 — HTML 로 대체했습니다.")
-
+    blob_key = f"exp_dev_blob_{g.name}_{kind}_{fmt}_{scale}"
     cached = st.session_state.get(blob_key)
-    if cached:
-        data, ext = cached
+
+    if cached is None:
+        if st.button(label, key=f"exp_dev_btn_{g.name}_{kind}", use_container_width=True):
+            try:
+                fig = _build_device_figure(app, g, kind)
+                st.session_state[blob_key] = export.figure_bytes(fig, fmt, scale)
+                st.rerun()
+            except export.KaleidoUnavailable as e:
+                st.error(f"{label} 이미지를 만들지 못했습니다: {e}")
+    else:
         st.download_button(
-            f"{label} 다운로드 (.{ext})", data=data,
-            file_name=_device_filename(g.name, kind, ext),
-            mime=_MIME.get(ext, "application/octet-stream"),
+            label, data=cached, file_name=_device_filename(g.name, kind, fmt),
+            mime=_MIME.get(fmt, "application/octet-stream"),
             use_container_width=True, key=f"exp_dev_dl_{g.name}_{kind}",
         )
 
@@ -104,54 +106,78 @@ def _render_device_downloads(app, fmt: str, scale: int) -> None:
 
 def render(app) -> None:
     st.divider()
-    with st.expander("내보내기", expanded=False):
-        fmt_label = st.selectbox("이미지 형식", FORMATS, key="exp_fmt")
-        fmt = _FMT_KEY[fmt_label]
-        scale = st.selectbox("배율", [1, 2, 4], index=0, key="exp_scale")
+    st.markdown("**내보내기**")
 
-        rows = []
+    panel_style.render_page_and_presets(app)
+
+    fmt_label = st.selectbox("이미지 형식", FORMATS, key="exp_fmt")
+    fmt = _FMT_KEY[fmt_label]
+    scale = st.selectbox("배율", [1, 2, 4], index=0, key="exp_scale")
+
+    # 그래프 이미지만 담은 ZIP — 요약표 없이. 배율 선택 없이 항상 1x
+    # (전체 ZIP/개별 다운로드처럼 세세히 고를 필요 없는, 빠르게 훑어볼 용도).
+    if st.button("이미지 ZIP 만들기", use_container_width=True):
+        items: list[tuple[str, bytes]] = []
+        failed = []
         for g in app.devices:
-            tm, od = compute(app, g)
-            rows.append(export.summary_row(effective_group(app, g), tm, od))
-        df = export.summary_dataframe(rows)
+            tm, _od = compute(app, g)
+            for kind, fig in _figures(app, g, tm):
+                try:
+                    items.append((f"{g.name}/{kind}.{fmt}", export.figure_bytes(fig, fmt, 1)))
+                except export.KaleidoUnavailable:
+                    failed.append(f"{g.name}/{kind}")
+        st.session_state["image_zip_blob"] = export.build_zip(items)
+        if failed:
+            st.error("다음 이미지를 만들지 못해 ZIP 에서 제외했습니다: " + ", ".join(failed))
 
-        st.download_button("요약표 (XLSX)", data=export.summary_xlsx_bytes(df),
-                           file_name="fet_summary.xlsx", use_container_width=True,
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.download_button("요약표 (CSV)", data=export.summary_csv_bytes(df),
-                           file_name="fet_summary.csv", mime="text/csv",
+    if st.session_state.get("image_zip_blob"):
+        st.download_button("이미지 ZIP 다운로드", data=st.session_state["image_zip_blob"],
+                           file_name="fet_studio_images.zip", mime="application/zip",
                            use_container_width=True)
 
-        if st.button("전체 ZIP 만들기", use_container_width=True):
-            items: list[tuple[str, bytes]] = [
-                ("fet_summary.xlsx", export.summary_xlsx_bytes(df)),
-                ("fet_summary.csv", export.summary_csv_bytes(df)),
-            ]
-            failed = []
-            for g in app.devices:
-                tm, _od = compute(app, g)
-                for kind, fig in _figures(app, g, tm):
-                    try:
-                        items.append((f"{g.name}/{kind}.{fmt}",
-                                      export.figure_bytes(fig, fmt, scale)))
-                    except export.KaleidoUnavailable:
-                        failed.append(f"{g.name}/{kind}")
-                        items.append((f"{g.name}/{kind}.html",
-                                      fig.to_html(include_plotlyjs="cdn").encode("utf-8")))
-                if g.transfer is not None:
-                    items.append((f"{g.name}/transfer_processed.csv",
-                                  export.transfer_processed_csv(g.transfer, tm).encode("utf-8-sig")))
-                if g.output is not None:
-                    items.append((f"{g.name}/output_processed.csv",
-                                  export.output_processed_csv(g.output).encode("utf-8-sig")))
-            st.session_state["zip_blob"] = export.build_zip(items)
-            if failed:
-                st.warning("이미지 렌더 실패 — HTML 로 대체했습니다: " + ", ".join(failed))
+    st.divider()
 
-        if st.session_state.get("zip_blob"):
-            st.download_button("ZIP 다운로드", data=st.session_state["zip_blob"],
-                               file_name="fet_studio_export.zip", mime="application/zip",
-                               use_container_width=True)
+    rows = []
+    for g in app.devices:
+        tm, od = compute(app, g)
+        rows.append(export.summary_row(effective_group(app, g), tm, od))
+    df = export.summary_dataframe(rows)
 
-        st.divider()
-        _render_device_downloads(app, fmt, scale)
+    st.download_button("요약표 (XLSX)", data=export.summary_xlsx_bytes(df),
+                       file_name="fet_summary.xlsx", use_container_width=True,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button("요약표 (CSV)", data=export.summary_csv_bytes(df),
+                       file_name="fet_summary.csv", mime="text/csv",
+                       use_container_width=True)
+
+    if st.button("전체 ZIP 만들기", use_container_width=True):
+        items: list[tuple[str, bytes]] = [
+            ("fet_summary.xlsx", export.summary_xlsx_bytes(df)),
+            ("fet_summary.csv", export.summary_csv_bytes(df)),
+        ]
+        failed = []
+        for g in app.devices:
+            tm, _od = compute(app, g)
+            for kind, fig in _figures(app, g, tm):
+                try:
+                    items.append((f"{g.name}/{kind}.{fmt}",
+                                  export.figure_bytes(fig, fmt, scale)))
+                except export.KaleidoUnavailable:
+                    failed.append(f"{g.name}/{kind}")
+            if g.transfer is not None:
+                items.append((f"{g.name}/transfer_processed.csv",
+                              export.transfer_processed_csv(g.transfer, tm).encode("utf-8-sig")))
+            if g.output is not None:
+                items.append((f"{g.name}/output_processed.csv",
+                              export.output_processed_csv(g.output).encode("utf-8-sig")))
+        st.session_state["zip_blob"] = export.build_zip(items)
+        if failed:
+            st.error("다음 이미지를 만들지 못해 ZIP 에서 제외했습니다: " + ", ".join(failed))
+
+    if st.session_state.get("zip_blob"):
+        st.download_button("ZIP 다운로드", data=st.session_state["zip_blob"],
+                           file_name="fet_studio_export.zip", mime="application/zip",
+                           use_container_width=True)
+
+    st.divider()
+    _render_device_downloads(app, fmt, scale)
