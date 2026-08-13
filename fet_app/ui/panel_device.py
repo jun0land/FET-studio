@@ -98,27 +98,6 @@ def render(app) -> None:
                               g.select_output_file, "Output")
 
     p = g.params
-    c1, c2 = st.columns(2)
-    with c1:
-        w = st.text_input("W (µm)", value="" if p.w_um is None else f"{p.w_um:g}",
-                          key=f"w_{g.name}", placeholder="전역값")
-    with c2:
-        length = st.text_input("L (µm)", value="" if p.l_um is None else f"{p.l_um:g}",
-                               key=f"l_{g.name}", placeholder="전역값")
-
-    names = list(DIELECTRIC_PRESETS) + ["Custom"]
-    current = next((n for n, v in DIELECTRIC_PRESETS.items() if v == p.eps_r), None)
-    idx = names.index(current) if current else len(names) - 1
-    choice = st.selectbox("유전체", names, index=idx, key=f"diel_{g.name}")
-
-    c3, c4 = st.columns(2)
-    with c3:
-        eps = (st.text_input("ε_r", value="" if p.eps_r is None else f"{p.eps_r:g}",
-                             key=f"eps_{g.name}", placeholder="전역값")
-               if choice == "Custom" else str(DIELECTRIC_PRESETS[choice]))
-    with c4:
-        d = st.text_input("d (nm)", value="" if p.d_nm is None else f"{p.d_nm:g}",
-                          key=f"d_{g.name}", placeholder="전역값")
 
     def _num(text):
         try:
@@ -127,8 +106,49 @@ def render(app) -> None:
         except ValueError:
             return None
 
+    # 전역 기본값 패널(render_global)과 같은 배치: W/L 한 줄, 유전체+ε_r 한 줄,
+    # d(nm) 한 줄. 유전체 목록 맨 앞의 '전역값 사용'은 이 소자가 유전체를 따로
+    # 지정하지 않아 전역값을 그대로 물려받는 상태임을 드러낸다 — 예전에는
+    # eps_r 이 비어 있어도 선택칸이 'Custom' 으로 보여서, 실제로는 전역값을
+    # 쓰는데 커스텀 값을 쓰는 것처럼 헷갈렸다.
+    c1, c2 = st.columns(2)
+    with c1:
+        w = st.text_input("W (µm)", value="" if p.w_um is None else f"{p.w_um:g}",
+                          key=f"w_{g.name}", placeholder="전역값")
+    with c2:
+        length = st.text_input("L (µm)", value="" if p.l_um is None else f"{p.l_um:g}",
+                               key=f"l_{g.name}", placeholder="전역값")
+
+    names = ["전역값 사용"] + list(DIELECTRIC_PRESETS) + ["Custom"]
+    if p.eps_r is None:
+        idx = 0
+    else:
+        current = next((n for n, v in DIELECTRIC_PRESETS.items() if v == p.eps_r), None)
+        idx = names.index(current) if current else len(names) - 1
+
+    c3, c4 = st.columns(2)
+    with c3:
+        choice = st.selectbox("유전체", names, index=idx, key=f"diel_{g.name}")
+    with c4:
+        if choice == "전역값 사용":
+            p.eps_r = None
+            inherited = app.global_params.eps_r
+            st.number_input("ε_r (전역값)", value=float(inherited or 0.0), step=0.1,
+                            key=f"eps_inherit_{g.name}", disabled=True)
+        elif choice == "Custom":
+            eps_text = st.text_input("ε_r", value="" if p.eps_r is None else f"{p.eps_r:g}",
+                                     key=f"eps_{g.name}")
+            p.eps_r = _num(eps_text)
+        else:
+            p.eps_r = DIELECTRIC_PRESETS[choice]
+            st.number_input("ε_r", value=float(p.eps_r), step=0.1,
+                            key=f"eps_fixed_{g.name}", disabled=True)
+
+    d = st.text_input("d (nm)", value="" if p.d_nm is None else f"{p.d_nm:g}",
+                      key=f"d_{g.name}", placeholder="전역값")
+
     g.params = DeviceParams(w_um=_num(w), l_um=_num(length),
-                            eps_r=_num(eps), d_nm=_num(d))
+                            eps_r=p.eps_r, d_nm=_num(d))
 
     eff = app.effective_params(g)
     if eff.is_complete():
