@@ -7,7 +7,10 @@ import streamlit as st
 from fet_app import state as state_mod
 from fet_app import theme
 from fet_app.manual import DOCS, load_doc
-from fet_app.ui import device_list, export_ui, panel_device, panel_fit, panel_style, summary
+from fet_app.ui import (
+    device_list, export_ui, panel_axes, panel_device, panel_fit, panel_insets,
+    panel_style, summary,
+)
 from fet_app.ui.viewport import preview_scale
 
 # theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 3열 컨테이너의 첫 컬럼에 심는다.
@@ -52,6 +55,8 @@ def render_app() -> None:
         st.markdown(SHELL_ANCHOR, unsafe_allow_html=True)
         panel_device.render(app)
         panel_fit.render(app)
+        panel_axes.render(app)
+        panel_insets.render(app)
         panel_style.render(app)
 
     with center:
