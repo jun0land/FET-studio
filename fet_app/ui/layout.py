@@ -37,10 +37,10 @@ def _render_doc_buttons() -> None:
     """
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("📖 이용 방법", key="doc_manual_btn", use_container_width=True):
+        if st.button("📖 이용 방법", key="doc_manual_btn"):
             _manual_dialog()
     with c2:
-        if st.button("📊 분석 방법", key="doc_methods_btn", use_container_width=True):
+        if st.button("📊 분석 방법", key="doc_methods_btn"):
             _methods_dialog()
 
 
@@ -53,7 +53,10 @@ def render_app() -> None:
     # 알려져 있다(고정 헤더/툴바가 위에 얹혀서 생기는 문제). 제목·문서
     # 버튼·업로더 높이가 서로 달라 상단 정렬이면 버튼이 그 죽은 영역에
     # 걸치기 쉬우므로 세로 중앙 정렬로 맞춘다.
-    header = st.columns([0.38, 0.34, 0.28], vertical_alignment="center")
+    # 문서 버튼이 use_container_width 없이 라벨 폭만 차지하게 되면서, 버튼
+    # 칸에 34% 를 주던 예전 비율은 빈 공간만 남긴다 — 그 폭을 제목/업로더로
+    # 옮겼다.
+    header = st.columns([0.30, 0.22, 0.48], vertical_alignment="center")
     with header[0]:
         st.markdown("### FET Studio")
     with header[1]:
