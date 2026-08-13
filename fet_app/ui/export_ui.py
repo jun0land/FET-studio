@@ -105,9 +105,6 @@ def _render_device_downloads(app, fmt: str, scale: int) -> None:
 
 
 def render(app) -> None:
-    st.divider()
-    st.markdown("**내보내기**")
-
     panel_style.render_page_and_presets(app)
 
     fmt_label = st.selectbox("이미지 형식", FORMATS, key="exp_fmt")

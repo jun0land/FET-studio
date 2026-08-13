@@ -39,7 +39,7 @@ def test_columns_are_targeted_via_anchor_marker():
 
 
 def test_no_column_is_ever_hidden_with_display_none():
-    """C2: 1150px 미만에서 3번째 컬럼(소자 리스트+내보내기)을 display:none 으로
+    """C2: 1150px 미만에서 3번째 컬럼(소자 리스트)을 display:none 으로
     숨기던 규칙은 그 폭에서 콘텐츠 전체를 접근 불가로 만들었다. 어떤 컬럼도
     어떤 브레이크포인트에서도 display:none 이 되어서는 안 된다."""
     assert "display: none" not in RESPONSIVE_CSS
