@@ -38,7 +38,7 @@ def test_compute_uses_effective_params():
     curve = TransferCurve(forward=df, v_ds=-60.0)
     run = MeasurementRun(sheet="Data", label="Data", is_latest=True,
                          kind=TRANSFER, reason="test", transfer=curve)
-    g = DeviceGroup(name="x", transfer_runs=[run])
+    g = DeviceGroup(name="x", transfer_sources={"x.xls": [run]}, transfer_file="x.xls")
     tm, od = compute(app, g)
     assert tm is not None and tm.mu_sat is not None
     assert od is None

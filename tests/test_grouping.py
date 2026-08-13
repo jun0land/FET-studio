@@ -88,12 +88,58 @@ def test_group_records_extra_when_duplicate_kind(example_dir):
     groups = group_files(parsed)
     # stem 이 'dev' 와 'dev copy' 로 달라 그룹 2개
     assert len(groups) == 2
-    # 같은 stem 으로 강제하면 두 번째가 extra 로 밀린다
-    parsed[1].name = "dev.xls"
+    # 같은 stem('dev')이지만 다른 파일명으로 강제하면 두 번째가 extra 로 밀린다.
+    # ('best' 는 알려진 접미 토큰이라 떼어내도 stem 이 'dev' 로 같아진다)
+    parsed[1].name = "dev best.xls"
     groups = group_files(parsed)
     assert len(groups) == 1
-    assert groups[0].extra_files == ["dev.xls"]
+    assert groups[0].extra_files == ["dev best.xls"]
     assert groups[0].warnings
+
+
+def test_group_keeps_the_extra_files_runs_retrievable_by_swapping(example_dir):
+    """M12: 두 번째 파일도 버려지지 않는다 — transfer_sources 에 남아 있고,
+    활성 파일을 바꾸면 .transfer 가 실제로 그 파일의 데이터를 반환한다."""
+    a = example_dir / "1-1.xls"
+    b = example_dir / "1-5 best.xls"
+    parsed = [parse_file(a.read_bytes(), "dev.xls"),
+              parse_file(b.read_bytes(), "dev best.xls")]
+    g = group_files(parsed)[0]
+
+    assert set(g.transfer_sources) == {"dev.xls", "dev best.xls"}
+    assert g.transfer_file == "dev.xls"
+    assert g.extra_files == ["dev best.xls"]
+
+    original = g.transfer
+    assert original is g.transfer_sources["dev.xls"][0].transfer
+
+    g.select_transfer_file("dev best.xls")
+    assert g.transfer_file == "dev best.xls"
+    assert g.transfer_run_idx == 0
+    assert g.transfer is g.transfer_sources["dev best.xls"][0].transfer
+    assert g.transfer is not original
+    assert g.extra_files == ["dev.xls"]
+
+
+def test_select_transfer_file_resets_run_idx(example_dir):
+    """런 인덱스는 파일별이라, 파일을 바꾸면 0(Latest)으로 리셋돼야 한다."""
+    p = example_dir / "1-3 best.xls"   # Data + Append1 두 런
+    g = group_files([parse_file(p.read_bytes(), p.name)])[0]
+    g.transfer_sources["other.xls"] = g.transfer_sources["1-3 best.xls"]
+    g.transfer_run_idx = 1
+
+    g.select_transfer_file("other.xls")
+    assert g.transfer_file == "other.xls"
+    assert g.transfer_run_idx == 0
+
+
+def test_select_transfer_file_ignores_unknown_or_same_name():
+    g = DeviceGroup(name="x", transfer_sources={"a.xls": []}, transfer_file="a.xls",
+                    transfer_run_idx=1)
+    g.select_transfer_file("nope.xls")
+    assert g.transfer_file == "a.xls" and g.transfer_run_idx == 1
+    g.select_transfer_file("a.xls")
+    assert g.transfer_file == "a.xls" and g.transfer_run_idx == 1
 
 
 def test_badges_reflect_available_curves():
@@ -104,6 +150,8 @@ def test_badges_reflect_available_curves():
     o_run = MeasurementRun(sheet="Data", label="Run", is_latest=True,
                            kind="output", reason="forcing", settings=None,
                            transfer=None, output=object())
-    assert DeviceGroup(name="x", transfer_runs=[t_run]).badges == "T"
-    assert DeviceGroup(name="x", output_runs=[o_run]).badges == "O"
+    assert DeviceGroup(name="x", transfer_sources={"a.xls": [t_run]},
+                       transfer_file="a.xls").badges == "T"
+    assert DeviceGroup(name="x", output_sources={"a.xls": [o_run]},
+                       output_file="a.xls").badges == "O"
     assert DeviceGroup(name="x").badges == "—"

@@ -1,10 +1,6 @@
-from pathlib import Path
-
 from fet_app.grouping import DeviceGroup, MeasurementRun
 from fet_app.params import DeviceParams
 from fet_app.state import AppState, add_files, default_settings
-
-_STATE_SRC = Path(__file__).resolve().parent.parent / "fet_app" / "state.py"
 
 
 def test_default_settings_are_independent_copies():
@@ -65,37 +61,29 @@ def test_add_files_preserves_custom_params_when_merging_second_file(all_example_
     assert g2.transfer is not None and g2.output is not None
 
 
-def test_add_files_transfer_extra_dedupe_guard_matches_output_sibling():
-    """M11: transfer_file 쪽 elif 도 output_file 쪽처럼 `not in old.extra_files`
-    가드를 써야 한다. 현재 두 if/elif 블록의 실행 순서(transfer 먼저) 덕에 이
-    가드가 없어도 동일 파일명의 중복 append 는 우연히 막히지만, 두 블록의
-    순서가 바뀌면 바로 깨지는 취약한 상태였다. 소스에서 대칭성을 직접
-    확인한다 — 가드를 지우면 이 테스트가 실패한다."""
-    src = _STATE_SRC.read_text(encoding="utf-8")
-    assert "elif g.transfer_runs and g.transfer_file and g.transfer_file not in old.extra_files:" in src
-    assert "elif g.output_runs and g.output_file and g.output_file not in old.extra_files:" in src
-
-
 def test_add_files_dual_kind_file_not_appended_twice_to_extra_files():
     """M11 이 지키는 실제 계약: 하나의 소자가 transfer/output 둘 다 이미 있는
     상태에서, 두 커브 종류를 동시에 담은 파일(같은 파일명이 transfer_file 이자
-    output_file)을 추가로 올려도 extra_files 에는 그 파일명이 한 번만 남는다."""
+    output_file)을 추가로 올려도 extra_files 에는 그 파일명이 한 번만 남는다.
+
+    M12 이후: extra_files 는 transfer_sources/output_sources 에서 파생되는
+    프로퍼티라 이 계약이 구조적으로 성립한다 — 별도의 dedupe 가드가 필요 없다."""
     existing = DeviceGroup(
         name="1-1",
-        transfer_runs=[MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                      kind="transfer", reason="settings")],
-        output_runs=[MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                    kind="output", reason="settings")],
+        transfer_sources={"orig_t.xls": [MeasurementRun(
+            sheet="Data", label="Data", is_latest=True, kind="transfer", reason="settings")]},
+        output_sources={"orig_o.xls": [MeasurementRun(
+            sheet="Data", label="Data", is_latest=True, kind="output", reason="settings")]},
         transfer_file="orig_t.xls", output_file="orig_o.xls",
     )
     app = AppState(devices=[existing], file_names={"orig_t.xls", "orig_o.xls"})
 
     dual_group = DeviceGroup(
         name="1-1",
-        transfer_runs=[MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                      kind="transfer", reason="settings")],
-        output_runs=[MeasurementRun(sheet="Append1", label="Append1", is_latest=False,
-                                    kind="output", reason="settings")],
+        transfer_sources={"dual.xls": [MeasurementRun(
+            sheet="Data", label="Data", is_latest=True, kind="transfer", reason="settings")]},
+        output_sources={"dual.xls": [MeasurementRun(
+            sheet="Append1", label="Append1", is_latest=False, kind="output", reason="settings")]},
         transfer_file="dual.xls", output_file="dual.xls",
     )
 
@@ -111,3 +99,29 @@ def test_add_files_dual_kind_file_not_appended_twice_to_extra_files():
         state_mod.parse_file = original_parse_file
 
     assert app.devices[0].extra_files == ["dual.xls"]
+    # 두 종류 모두 후보로 남았지만 활성 파일은 그대로다.
+    assert app.devices[0].transfer_file == "orig_t.xls"
+    assert app.devices[0].output_file == "orig_o.xls"
+    assert set(app.devices[0].transfer_sources) == {"orig_t.xls", "dual.xls"}
+    assert set(app.devices[0].output_sources) == {"orig_o.xls", "dual.xls"}
+
+
+def test_add_files_second_transfer_file_becomes_swappable_alternate(all_example_files):
+    """M12: 두 번째로 올라온 같은 종류(transfer) 파일은 버려지지 않고
+    transfer_sources 후보로 남아 활성 파일을 바꿀 수 있어야 한다."""
+    app = AppState()
+    first = next(p for p in all_example_files if p.name == "1-1.xls")
+    second = next(p for p in all_example_files if p.name == "1-2.xls")
+    add_files(app, [(first.name, first.read_bytes())])
+    g = app.device("1-1")
+    # "tr" 은 알려진 접미 토큰(stem_of 가 떼어낸다)이라 stem 이 "1-1" 로 강제된다.
+    add_files(app, [("1-1 tr.xls", second.read_bytes())])
+
+    assert g.transfer_file == "1-1.xls"
+    assert set(g.transfer_sources) == {"1-1.xls", "1-1 tr.xls"}
+    assert g.extra_files == ["1-1 tr.xls"]
+
+    original = g.transfer
+    g.select_transfer_file("1-1 tr.xls")
+    assert g.transfer is not None and g.transfer is not original
+    assert g.transfer_run_idx == 0

@@ -42,7 +42,9 @@ def _group():
     output_run = MeasurementRun(sheet="Data", label="Data", is_latest=True,
                                 kind="output", reason="settings",
                                 output=_output())
-    return DeviceGroup(name="1-1", transfer_runs=[transfer_run], output_runs=[output_run],
+    return DeviceGroup(name="1-1",
+                       transfer_sources={"1-1.xls": [transfer_run]},
+                       output_sources={"1-1 out.xls": [output_run]},
                        transfer_file="1-1.xls", output_file="1-1 out.xls",
                        params=PARAMS)
 

@@ -42,18 +42,20 @@ def _output():
 
 
 def _group(name="1-1", with_transfer=True, with_output=True):
-    transfer_runs, output_runs = [], []
+    transfer_sources, output_sources = {}, {}
+    transfer_file = output_file = None
     if with_transfer:
-        transfer_runs = [MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                        kind="transfer", reason="settings",
-                                        transfer=_transfer())]
+        transfer_file = f"{name}.xls"
+        transfer_sources[transfer_file] = [MeasurementRun(
+            sheet="Data", label="Data", is_latest=True,
+            kind="transfer", reason="settings", transfer=_transfer())]
     if with_output:
-        output_runs = [MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                      kind="output", reason="settings",
-                                      output=_output())]
-    return DeviceGroup(name=name, transfer_runs=transfer_runs, output_runs=output_runs,
-                       transfer_file=f"{name}.xls" if with_transfer else None,
-                       output_file=f"{name} out.xls" if with_output else None,
+        output_file = f"{name} out.xls"
+        output_sources[output_file] = [MeasurementRun(
+            sheet="Data", label="Data", is_latest=True,
+            kind="output", reason="settings", output=_output())]
+    return DeviceGroup(name=name, transfer_sources=transfer_sources, output_sources=output_sources,
+                       transfer_file=transfer_file, output_file=output_file,
                        params=PARAMS)
 
 
@@ -84,9 +86,9 @@ def test_available_kinds_excludes_interrupted_measurement_with_empty_frame():
     (summary._has_transfer_data 와 같은 규칙을 재사용해야 하는 이유)."""
     empty = TransferCurve(forward=pd.DataFrame({"V_G": [], "I_G": [], "I_D": []}))
     g = DeviceGroup(name="x", transfer_file="x.xls",
-                    transfer_runs=[MeasurementRun(sheet="Data", label="Data", is_latest=True,
-                                                  kind="transfer", reason="settings",
-                                                  transfer=empty)])
+                    transfer_sources={"x.xls": [MeasurementRun(
+                        sheet="Data", label="Data", is_latest=True,
+                        kind="transfer", reason="settings", transfer=empty)]})
     assert export_ui._available_kinds(g) == []
 
 
