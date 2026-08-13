@@ -29,7 +29,7 @@ def test_responsive_css_has_all_four_breakpoints():
 
 def test_panel_widths_use_clamp():
     css = RESPONSIVE_CSS
-    assert "clamp(260px, 20vw, 340px)" in css
+    assert "clamp(340px, 30vw, 480px)" in css
     assert "clamp(180px, 13vw, 230px)" in css
 
 

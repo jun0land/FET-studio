@@ -12,12 +12,8 @@ import inspect
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from fet_app import export
-from fet_app.constants import DEFAULTS
 from fet_app.curves import OutputBlock, OutputCurve, TransferCurve
-from fet_app.figure_common import new_figure
 from fet_app.grouping import DeviceGroup, MeasurementRun
 from fet_app.params import DeviceParams
 from fet_app.ui import export_ui
@@ -105,29 +101,15 @@ def test_export_ui_reuses_summary_curve_presence_helpers():
 
 def test_device_filename_matches_naming_convention():
     assert export_ui._device_filename("1-3", "transfer", "png") == "1-3_transfer.png"
-    assert export_ui._device_filename("1-3", "output", "html") == "1-3_output.html"
+    assert export_ui._device_filename("1-3", "output", "svg") == "1-3_output.svg"
 
 
-# ---------------- KaleidoUnavailable -> HTML 폴백 (ZIP 경로와 동일 정책) ----------------
+# ---------------- HTML 폴백 제거 확인 ----------------
 
-def test_render_or_fallback_returns_html_on_kaleido_unavailable(monkeypatch):
-    def _boom(*_a, **_k):
-        raise export.KaleidoUnavailable("no chromium")
-    monkeypatch.setattr(export, "figure_bytes", _boom)
-
-    fig = new_figure(DEFAULTS["geom"], k=0.2)
-    data, ext, ok = export_ui._render_or_fallback(fig, "png", 1)
-    assert ok is False
-    assert ext == "html"
-    assert b"plotly" in data.lower()
-
-
-def test_render_or_fallback_returns_native_bytes_when_kaleido_available():
-    fig = new_figure(DEFAULTS["geom"], k=0.2)
-    try:
-        data, ext, ok = export_ui._render_or_fallback(fig, "png", 1)
-    except export.KaleidoUnavailable:
-        pytest.skip("kaleido 미설치")
-    assert ok is True
-    assert ext == "png"
-    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+def test_export_ui_never_falls_back_to_html():
+    """이미지 렌더 실패 시 HTML 로 대체하지 않는다 — 사용자가 PNG/JPG 를
+    받았다고 착각할 수 있어서 제거했다. 실패는 st.error 로 보여준다."""
+    src = inspect.getsource(export_ui)
+    assert "to_html" not in src
+    assert '"html"' not in src
+    assert "KaleidoUnavailable" in src  # 여전히 잡아서 st.error 로 보여준다
