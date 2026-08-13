@@ -64,10 +64,34 @@ def test_on_off_ignores_zeros():
 
 
 def test_subthreshold_swing_recovers_synthetic_slope():
-    v_g, i_d = _ideal_transfer(ss_mv=200.0)
+    """설계한 SS 를 그대로 복원하는지.
+
+    V_G 간격이 1 V 이므로 전이폭이 몇 V 는 되어야 분해된다. SS = 2000 mV/dec 면
+    전이가 약 14 V 에 걸쳐 21점이 밴드에 들어와 정확히 복원된다.
+    """
+    v_g, i_d = _ideal_transfer(ss_mv=2000.0)
     ss = subthreshold_swing(v_g, i_d)
     assert ss is not None
-    assert abs(ss - 200.0) < 40.0   # 1 V 간격 측정이라 오차 허용
+    assert abs(ss - 2000.0) < 100.0
+
+
+def test_subthreshold_swing_cannot_resolve_below_sampling_step():
+    """측정 간격보다 가파른 SS 는 과대평가된다 — MANUAL §5 의 한계 조항.
+
+    이건 결함이 아니라 물리적 한계다. 값이 설계값보다 크게 나오는 것이 정상이며,
+    작게 나온다면 계산이 잘못된 것이므로 그쪽을 잡는다.
+    """
+    v_g, i_d = _ideal_transfer(ss_mv=200.0)   # 전이폭 1.4 V < 1 V 간격 x 2
+    ss = subthreshold_swing(v_g, i_d)
+    assert ss is not None
+    assert ss > 200.0
+
+
+def test_subthreshold_swing_returns_none_without_enough_swing():
+    """on/off 가 100배도 안 되면 서브스레숄드 구간을 정의할 수 없다."""
+    v_g = np.arange(20, -61, -1, dtype=float)
+    i_d = -np.linspace(1e-9, 5e-9, v_g.size)
+    assert subthreshold_swing(v_g, i_d) is None
 
 
 def test_hysteresis_recovers_shift():
