@@ -33,6 +33,7 @@ FIT_TIE_TOLERANCE = 5e-4       # 동점 판정: dR^2 < 5e-4 면 긴 쪽 우선
 SS_WINDOW = 5                  # SS 이동 최소자승 회귀 창
 DIAG_SLOPE_POINTS = 5          # output 진단 기울기 산출 점 개수
 DIAG_ORIGIN_FRACTION = 0.10    # 원점 선형성 판정 구간 = 스윕폭의 10 %
+DIAG_ON_BLOCK_FRACTION = 0.01  # on-block 판정: 블록 max|I_D| >= 1 % of I_drive
 
 DEFAULT_THRESHOLDS = {
     "zero_offset": 0.01,       # |I_D(0)| / max|I_D| 가 1 % 초과면 경고
