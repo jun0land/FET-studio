@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 
 from fet_app.constants import ACCENT
@@ -38,35 +37,40 @@ _MYRIAD_FACES = [
 _PRETENDARD_WEIGHTS = {400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold"}
 
 
-def _b64(path: Path) -> str:
-    return base64.b64encode(path.read_bytes()).decode("ascii")
+# Streamlit 정적 서빙 경로. .streamlit/config.toml 의 enableStaticServing = true 가
+# 저장소 루트의 static/ 를 여기로 노출한다.
+_STATIC_URL = "app/static/fonts"
 
 
 def _font_face_css() -> str:
-    """Myriad Pro(otf) + Pretendard(woff2) 를 base64 로 인라인한 @font-face 모음.
+    """Myriad Pro(otf) + Pretendard(woff2) @font-face 모음.
+
+    폰트는 base64 로 인라인하지 않고 ``app/static/fonts/`` 에서 받아간다.
+    인라인하면 CSS 가 5 MB 를 넘고, Streamlit 은 위젯을 건드릴 때마다 스크립트를
+    다시 돌리므로 그 5 MB 가 매번 웹소켓으로 나가 앱이 느려진다.
+    브라우저는 폰트를 캐시하므로 URL 방식은 최초 1회만 받는다.
 
     ``static/fonts/`` 에 파일이 없으면 해당 굵기만 조용히 생략한다 -> 브라우저가
     font-family 스택의 다음 폰트로 자연 폴백한다 (하드 실패 없음).
     """
     faces: list[str] = []
     for weight, style, filename, local_name in _MYRIAD_FACES:
-        path = _FONTS_DIR / filename
-        if not path.is_file():
+        if not (_FONTS_DIR / filename).is_file():
             continue
-        data = _b64(path)
         faces.append(
             f"@font-face{{font-family:'Myriad Pro';font-weight:{weight};"
             f"font-style:{style};font-display:swap;"
-            f"src:local('{local_name}'),url(data:font/otf;base64,{data}) format('opentype');}}"
+            f"src:local('{local_name}'),"
+            f"url('{_STATIC_URL}/{filename}') format('opentype');}}"
         )
     for weight, name in _PRETENDARD_WEIGHTS.items():
-        path = _FONTS_DIR / f"Pretendard-{name}.woff2"
-        if not path.is_file():
+        filename = f"Pretendard-{name}.woff2"
+        if not (_FONTS_DIR / filename).is_file():
             continue
-        data = _b64(path)
         faces.append(
             f"@font-face{{font-family:'Pretendard';font-weight:{weight};font-display:swap;"
-            f"src:local('Pretendard {name}'),url(data:font/woff2;base64,{data}) format('woff2');}}"
+            f"src:local('Pretendard {name}'),"
+            f"url('{_STATIC_URL}/{filename}') format('woff2');}}"
         )
     return "<style>\n" + "\n".join(faces) + "\n</style>"
 

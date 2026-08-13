@@ -7,6 +7,9 @@ textColor = "#1A1C1E"
 
 [server]
 maxUploadSize = 200
+# static/ 를 app/static/... URL 로 서빙한다. 폰트를 base64 로 인라인하면
+# CSS 가 5 MB 를 넘고 그게 매 rerun 마다 웹소켓으로 나가 앱이 느려진다.
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
