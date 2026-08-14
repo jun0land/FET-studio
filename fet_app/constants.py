@@ -102,9 +102,13 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
 # 소비자는 반드시 copy.deepcopy 후 사용할 것 (평범한 dict 이라 전역 오염 위험).
 DEFAULTS = {
     # Transfer/Output 은 각자 독립적인 배경 크기를 갖는다. Transfer 는 이중 Y축이라
-    # 세로로 긴 8x10, Output 은 가로로 긴 10x8 이 기본이다. graph_*_pct 는 동일.
+    # 세로로 긴 8x10, Output 은 가로로 긴 10x8 이 기본이다.
+    # graph_width_pct: Output 은 68.2 그대로, Transfer 만 65.0 로 줄였다 — Plotly 가
+    # 축 제목을 종이(paper) 안쪽으로 클램프해서, 68.2 에서는 우Y(y2) 제목이 눈금
+    # 숫자와 겹쳤다(-4px). title_standoff 를 아무리 올려도 클램프 때문에 안 밀려서,
+    # 플롯 폭 자체를 줄여 여백을 만드는 것만 실제로 먹힌다(65.0 에서 +16px 확인).
     "transfer_geom": {"page_w_in": 8.0, "page_h_in": 10.0, "graph_left_pct": 17.9,
-                      "graph_top_pct": 11.58, "graph_width_pct": 68.2,
+                      "graph_top_pct": 11.58, "graph_width_pct": 65.0,
                       "graph_height_pct": 71.77},
     "output_geom": {"page_w_in": 10.0, "page_h_in": 8.0, "graph_left_pct": 17.9,
                     "graph_top_pct": 11.58, "graph_width_pct": 68.2,
@@ -116,12 +120,20 @@ DEFAULTS = {
               "dtick": 20.0, "minor_dtick": None,
               "title": "V_{G} (V)", "title_standoff": None},
         # 좌 Y: 절댓값 기호를 쓴다 (스펙 §5.2 — photodetector-app 규약 A2 를 뒤집음)
+        # title_standoff: Plotly 기본값은 15 px 상당이라 30 px 눈금 글자 옆에서는
+        # 제목이 숫자에 바짝 붙는다. 20 px 로 올려 여유를 둔다. 단, Plotly 는 축
+        # 제목을 종이(paper) 안쪽으로 클램프하므로 여백이 모자란 축에서는 이 값을
+        # 올려도 더 밀리지 않는다 (아래 y2 주석 참고).
         "y": {"type": "log", "auto": True, "min": None, "max": None,
               "dtick": 1, "minor_dtick": "D1",
-              "title": "|I_{D}| (A)", "title_standoff": None},
+              "title": "|I_{D}| (A)", "title_standoff": 20.0},
+        # 우 Y 는 기본 지오메트리(graph_left 17.9 % + width 68.2 %)에서 오른쪽에
+        # 13.9 % = 107 px 밖에 안 남고 눈금 글자('0.012')가 68 px 를 먹어서, 제목이
+        # 이미 종이 오른쪽 끝에 클램프돼 있다. 그래서 이 값만으로는 간격이 벌어지지
+        # 않는다 — 여유가 필요하면 transfer_geom.graph_width_pct 를 줄여야 한다.
         "y2": {"type": "linear", "auto": True, "min": None, "max": None,
                "dtick": None, "minor_dtick": None,
-               "title": "√|I_{D}| (A^{0.5})", "title_standoff": None},
+               "title": "√|I_{D}| (A^{0.5})", "title_standoff": 20.0},
     },
     "output_axes": {
         "x": {"type": "linear", "auto": True, "min": None, "max": None,
@@ -129,7 +141,7 @@ DEFAULTS = {
               "title": "V_{D} (V)", "title_standoff": None},
         "y": {"type": "linear", "auto": True, "min": None, "max": None,
               "dtick": None, "minor_dtick": None,
-              "title": "I_{D} (A)", "title_standoff": None},
+              "title": "I_{D} (A)", "title_standoff": 20.0},
     },
     "transfer_style": {
         # 이중 Y축이라 좌(log|I_D|)/우(√|I_D|) 축과 그 트레이스에 각각 색을 준다.

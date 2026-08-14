@@ -201,6 +201,11 @@ $$
 
 - 논문용 흰 배경, 4면 박스 mirror ticks, ticks inside, 그리드 없음.
 - 눈금 지수 표기는 항상 `1E-11` 형식(`exponentformat="E"`).
+- linear 축은 눈금 간격을 1-2-5 계열로 직접 정하고(major 를 비워 둔 경우) 그 간격의
+  소수 자릿수로 모든 눈금을 같은 자리까지 찍는다 — `0.002 … 0.008, 0.010` 처럼
+  마지막 눈금만 `0.01` 로 잘리지 않게 하기 위한 논문 표기 관례다. 눈금 값이 지수
+  표기 구간(간격 < 1E-4 또는 최댓값 ≥ 1E4)에 들어가면 이 규칙 대신 위의
+  `exponentformat="E"` 를 따른다. log 축은 `dtick` 이 'decade 수' 라 해당 없음.
 - 크기는 Origin 방식 2단계: Background(inch, 기본 10 × 8) → Graph(% of background,
   기본 Left 17.9 / Top 11.58 / Width 68.2 / Height 71.77).
 - **Transfer**: 좌 Y축 `|I_D| (A)` (log), 우 Y축 `√|I_D| (A^0.5)` (linear), X축 `V_G (V)`.

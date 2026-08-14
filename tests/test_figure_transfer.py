@@ -152,6 +152,37 @@ def test_custom_axis_title_markup_expands_to_html():
     assert fig.layout.xaxis.title.text == "<b>V</b><sub>DS</sub> (<sup>n</sup>V)"
 
 
+def test_right_axis_ticks_share_one_decimal_count():
+    """FIX: √|I_D| 축이 '0.002 … 0.008, 0.01' 처럼 마지막만 자릿수가 잘려 나왔다.
+    linear 축은 간격을 직접 정하고 그 자릿수로 tickformat 을 걸어 논문 스타일
+    (한 축의 모든 눈금이 같은 소수 자릿수)을 맞춘다."""
+    c = _curve()
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
+    y2 = fig.layout.yaxis2
+    assert y2.dtick is not None
+    step = float(y2.dtick)
+    assert 0 < step <= (y2.range[1] - y2.range[0])
+    assert y2.tickformat == f".{max(0, -int(np.floor(np.log10(step))))}f"
+    # 로그축은 이 로직에 걸리면 안 된다 (dtick 이 'decade 수' 라 의미가 다르다)
+    assert fig.layout.yaxis.dtick == 1
+    assert fig.layout.yaxis.tickformat is None
+    # 사용자가 지정한 x 축 dtick(20 V)은 그대로 존중된다
+    assert fig.layout.xaxis.dtick == 20.0
+    assert fig.layout.xaxis.tickformat == ".0f"
+
+
+def test_axis_titles_keep_a_standoff_from_the_tick_labels():
+    """FIX: 축 제목이 눈금 숫자에 붙어 보이던 문제. 기본 standoff 20 px 가
+    figure 까지 전달되고 k 로 함께 줄어들어야 한다."""
+    c = _curve()
+    m = transfer_metrics(c, PARAMS)
+    fig = transfer_figure(c, m, _settings(), k=1.0)
+    assert fig.layout.yaxis.title.standoff == 20.0
+    assert fig.layout.yaxis2.title.standoff == 20.0
+    half = transfer_figure(c, m, _settings(), k=0.5)
+    assert half.layout.yaxis2.title.standoff == 10.0
+
+
 def test_scale_shrinks_figure_and_fonts():
     c = _curve()
     m = transfer_metrics(c, PARAMS)
