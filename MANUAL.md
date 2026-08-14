@@ -18,16 +18,16 @@ Keithley 4200-SCS / KTEI 가 내보낸 `.xls` (구형 OLE2) 및 `.xlsx`. 시트 
 결정됐는지를 소자 카드에 근거로 표시한다.
 
 1. **`Settings` 의 Forcing Function 행** (가장 신뢰도 높음)
-   - Gate = `Voltage Sweep` 이고 Drain = `Voltage Bias` → **transfer**
-   - Gate = `Voltage Step` 이고 Drain = `Voltage Sweep` → **output**
+    - Gate = `Voltage Sweep` 이고 Drain = `Voltage Bias` → **transfer**
+    - Gate = `Voltage Step` 이고 Drain = `Voltage Sweep` → **output**
 2. **`Data` 열 구조** (Settings 를 못 읽었을 때)
-   - `GateV` 열이 있고 `DrainV` 로 시작하는 열이 없다 → transfer
-   - `GateI(n)/GateV(n)/DrainI(n)/DrainV(n)` 형태의 4열 블록이 반복되고, 각 블록의
-     `GateV(n)` 이 (그 블록 안에서) 상수다 → output
+    - `GateV` 열이 있고 `DrainV` 로 시작하는 열이 없다 → transfer
+    - `GateI(n)/GateV(n)/DrainI(n)/DrainV(n)` 형태의 4열 블록이 반복되고, 각 블록의
+      `GateV(n)` 이 (그 블록 안에서) 상수다 → output
 3. **`Test Name` 과 파일명** (최후 수단)
-   - `Test Name` 과 파일명을 합쳐 영숫자 이외 문자로 토큰을 나눈 뒤, `out` 또는
-     `output` 토큰이 있으면 output, 없으면 transfer 로 본다. 즉 파일명에 "transfer"
-     라고 적어도 판정에는 영향이 없다 — out/output 이 없으면 기본값이 transfer 다.
+    - `Test Name` 과 파일명을 합쳐 영숫자 이외 문자로 토큰을 나눈 뒤, `out` 또는
+      `output` 토큰이 있으면 output, 없으면 transfer 로 본다. 즉 파일명에 "transfer"
+      라고 적어도 판정에는 영향이 없다 — out/output 이 없으면 기본값이 transfer 다.
 
 3단계까지 내려가면(=Settings 와 열 구조 모두로 판정하지 못하면) 소자 카드에 "파일명으로
 판정했다"는 경고가 뜬다. 잘못 판정됐다면 소자 패널에서 직접 바꿀 수 있다.
