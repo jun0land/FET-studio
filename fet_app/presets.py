@@ -9,7 +9,8 @@ from __future__ import annotations
 import copy
 import json
 
-PRESET_KEYS = ("geom", "style", "transfer_axes", "output_axes",
+PRESET_KEYS = ("transfer_geom", "output_geom", "style",
+               "transfer_axes", "output_axes",
                "transfer_style", "output_style", "insets")
 
 

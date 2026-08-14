@@ -10,7 +10,7 @@ from fet_app.figure_output import gradient_colors, output_figure, relative_lumin
 
 def _settings(**over):
     s = {
-        "geom": copy.deepcopy(DEFAULTS["geom"]),
+        "geom": copy.deepcopy(DEFAULTS["output_geom"]),
         "style": copy.deepcopy(DEFAULTS["style"]),
         "axes": copy.deepcopy(DEFAULTS["output_axes"]),
         "trace": copy.deepcopy(DEFAULTS["output_style"]),

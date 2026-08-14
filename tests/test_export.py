@@ -113,7 +113,7 @@ def test_png_is_transparent_and_jpg_is_white():
     """스펙 §7 — PNG 투명, JPG 흰 배경. kaleido 가 없으면 skip."""
     from fet_app.figure_common import new_figure
     from fet_app.constants import DEFAULTS
-    fig = new_figure(DEFAULTS["geom"], k=0.2)
+    fig = new_figure(DEFAULTS["output_geom"], k=0.2)
     try:
         png = export.figure_bytes(fig, "png", scale=1)
         jpg = export.figure_bytes(fig, "jpg", scale=1)
@@ -133,13 +133,13 @@ def test_figure_bytes_rejects_unknown_format():
     from fet_app.figure_common import new_figure
     from fet_app.constants import DEFAULTS
     with pytest.raises(ValueError):
-        export.figure_bytes(new_figure(DEFAULTS["geom"], 0.2), "gif")
+        export.figure_bytes(new_figure(DEFAULTS["output_geom"], 0.2), "gif")
 
 
 def test_export_does_not_mutate_figure():
     from fet_app.figure_common import new_figure
     from fet_app.constants import DEFAULTS
-    fig = new_figure(DEFAULTS["geom"], k=0.2)
+    fig = new_figure(DEFAULTS["output_geom"], k=0.2)
     try:
         export.figure_bytes(fig, "png")
     except export.KaleidoUnavailable:

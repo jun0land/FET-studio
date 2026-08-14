@@ -58,11 +58,16 @@ def render_app() -> None:
     # 버튼=내용 크기, 업로더=flex-grow)을 정한다.
     header = st.columns([0.14, 0.11, 0.11, 0.64], vertical_alignment="center")
     with header[0]:
-        st.markdown(HEADER_ROW_ANCHOR, unsafe_allow_html=True)
+        # 마커와 제목을 st.markdown() 한 번으로 합친다. 따로 두 번 호출하면
+        # Streamlit 이 stElementContainer 를 두 개 만들고 그 사이에 기본
+        # 세로 gap 이 생겨, 실제로 보이는 제목(.fet-title)이 아래로 밀려나면서
+        # header[1]/[2]/[3](호출이 하나뿐) 대비 세로 중심이 처지는 회귀가 난다.
         logo = theme.logo_url()
-        img_tag = f"<img src='{logo}' alt='FET Studio logo'/>" if logo else ""
-        st.markdown(f"<div class='fet-title'>{img_tag}<h3>FET Studio</h3></div>",
-                   unsafe_allow_html=True)
+        img_tag = f"<img src='{logo}' alt='FETs Studio logo'/>" if logo else ""
+        st.markdown(
+            f"{HEADER_ROW_ANCHOR}<div class='fet-title'>{img_tag}<h3>FETs Studio</h3></div>",
+            unsafe_allow_html=True,
+        )
     with header[1]:
         if st.button("📖 이용 방법", key="doc_manual_btn"):
             _manual_dialog()

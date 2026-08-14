@@ -9,7 +9,8 @@ from fet_app.constants import DEFAULTS, DEFAULT_THRESHOLDS
 from fet_app.grouping import DeviceGroup, group_files, parse_file
 from fet_app.params import DeviceParams
 
-SETTINGS_KEYS = ("geom", "style", "transfer_axes", "output_axes",
+SETTINGS_KEYS = ("transfer_geom", "output_geom", "style",
+                 "transfer_axes", "output_axes",
                  "transfer_style", "output_style", "insets")
 
 

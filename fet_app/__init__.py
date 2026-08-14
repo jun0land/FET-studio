@@ -1,1 +1,1 @@
-"""FET Studio — transfer/output curve 분석 앱."""
+"""FETs Studio — transfer/output curve 분석 앱."""

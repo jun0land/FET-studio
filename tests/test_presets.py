@@ -6,7 +6,8 @@ from fet_app.state import default_settings
 
 def test_extract_contains_only_format_keys():
     p = presets.extract(default_settings())
-    assert set(p) == {"geom", "style", "transfer_axes", "output_axes",
+    assert set(p) == {"transfer_geom", "output_geom", "style",
+                      "transfer_axes", "output_axes",
                       "transfer_style", "output_style", "insets"}
 
 

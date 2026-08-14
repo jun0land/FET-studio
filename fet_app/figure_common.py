@@ -33,8 +33,14 @@ def domains(geom: dict) -> tuple[list[float], list[float]]:
 def axis_layout(cfg: dict, style: dict, k: float = 1.0,
                 data_min: float | None = None, data_max: float | None = None,
                 side: str | None = None, overlaying: str | None = None,
-                domain: list[float] | None = None) -> dict:
-    """축 하나의 layout dict. 규약 위반이 없도록 여기서만 만든다."""
+                domain: list[float] | None = None,
+                axis_color: str = "#000000") -> dict:
+    """축 하나의 layout dict. 규약 위반이 없도록 여기서만 만든다.
+
+    ``axis_color`` 는 축선·눈금·제목·눈금 글자에 함께 쓰인다. Transfer 의 이중
+    Y축처럼 축마다 트레이스 색이 다를 때 축을 그 색에 맞추기 위한 것이고,
+    기본값이 검정이라 넘기지 않는 호출부는 기존 동작 그대로다.
+    """
     title_size = max(1, round(float(style["title_font_size"]) * k))
     tick_size = max(1, round(float(style["tick_font_size"]) * k))
     family = style["font_family"]
@@ -42,16 +48,16 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
     lay: dict = {
         "type": cfg.get("type", "linear"),
         "title": {"text": apply_markup(cfg.get("title", "")),
-                  "font": {"family": family, "size": title_size, "color": "#000000"}},
-        "tickfont": {"family": family, "size": tick_size, "color": "#000000"},
+                  "font": {"family": family, "size": title_size, "color": axis_color}},
+        "tickfont": {"family": family, "size": tick_size, "color": axis_color},
         "showline": True,
-        "linecolor": "#000000",
+        "linecolor": axis_color,
         "linewidth": max(0.5, 1.5 * k),
         "mirror": True,
         "ticks": "inside",
         "ticklen": max(2, round(8 * k)),
         "tickwidth": max(0.5, 1.5 * k),
-        "tickcolor": "#000000",
+        "tickcolor": axis_color,
         "showgrid": bool(style.get("show_grid", False)),
         "zeroline": False,
         "exponentformat": "E",
@@ -65,7 +71,7 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
     if cfg.get("minor_dtick") is not None:
         lay["minor"] = {"dtick": cfg["minor_dtick"], "ticks": "inside",
                         "ticklen": max(1, round(4 * k)),
-                        "tickwidth": max(0.5, 1.0 * k), "tickcolor": "#000000"}
+                        "tickwidth": max(0.5, 1.0 * k), "tickcolor": axis_color}
 
     # 범위: auto 여도 데이터 min/max 를 명시해 plotly 자동 패딩을 없앤다 (스펙 §5.1)
     lo = cfg.get("min") if not cfg.get("auto", True) else data_min

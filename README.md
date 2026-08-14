@@ -1,4 +1,4 @@
-# FET Studio
+# FETs Studio
 
 Keithley 측정 파일에서 FET transfer/output curve 를 자동 인식해 논문용 그래프를 그리고
 성능 지표를 계산·내보내는 Streamlit 앱.

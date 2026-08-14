@@ -101,8 +101,14 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
 # ---------------- 기본 서식 ----------------
 # 소비자는 반드시 copy.deepcopy 후 사용할 것 (평범한 dict 이라 전역 오염 위험).
 DEFAULTS = {
-    "geom": {"page_w_in": 10.0, "page_h_in": 8.0, "graph_left_pct": 17.9,
-             "graph_top_pct": 11.58, "graph_width_pct": 68.2, "graph_height_pct": 71.77},
+    # Transfer/Output 은 각자 독립적인 배경 크기를 갖는다. Transfer 는 이중 Y축이라
+    # 세로로 긴 8x10, Output 은 가로로 긴 10x8 이 기본이다. graph_*_pct 는 동일.
+    "transfer_geom": {"page_w_in": 8.0, "page_h_in": 10.0, "graph_left_pct": 17.9,
+                      "graph_top_pct": 11.58, "graph_width_pct": 68.2,
+                      "graph_height_pct": 71.77},
+    "output_geom": {"page_w_in": 10.0, "page_h_in": 8.0, "graph_left_pct": 17.9,
+                    "graph_top_pct": 11.58, "graph_width_pct": 68.2,
+                    "graph_height_pct": 71.77},
     "style": {"font_family": "Myriad Pro", "title_font_size": 30,
               "tick_font_size": 30, "line_width": 2.0, "show_grid": False},
     "transfer_axes": {
@@ -126,7 +132,10 @@ DEFAULTS = {
               "title": "I_{D} (A)", "title_standoff": None},
     },
     "transfer_style": {
-        "color": "#000000",
+        # 이중 Y축이라 좌(log|I_D|)/우(√|I_D|) 축과 그 트레이스에 각각 색을 준다.
+        # 게이트 전류(|I_G|)는 좌축에 속하므로 color_left 를 따른다.
+        "color_left": "#000000",
+        "color_right": "#000000",
         "show_reverse": True,
         "show_gate_current": False,
         "show_fit": True,

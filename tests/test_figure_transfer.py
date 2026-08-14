@@ -14,7 +14,7 @@ PARAMS = DeviceParams(w_um=1000.0, l_um=50.0, eps_r=3.9, d_nm=300.0)
 
 def _settings(**over):
     s = {
-        "geom": copy.deepcopy(DEFAULTS["geom"]),
+        "geom": copy.deepcopy(DEFAULTS["transfer_geom"]),
         "style": copy.deepcopy(DEFAULTS["style"]),
         "axes": copy.deepcopy(DEFAULTS["transfer_axes"]),
         "trace": copy.deepcopy(DEFAULTS["transfer_style"]),
@@ -102,6 +102,39 @@ def test_gate_current_optional():
     assert "|I_G|" not in [t.name for t in transfer_figure(c, transfer_metrics(c, PARAMS), s).data]
     s["trace"]["show_gate_current"] = True
     assert "|I_G|" in [t.name for t in transfer_figure(c, transfer_metrics(c, PARAMS), s).data]
+
+
+def test_left_and_right_axes_take_independent_colors():
+    """좌축(log|I_D|, |I_G|)은 color_left, 우축(√|I_D|)은 color_right 를 쓰고
+    축선·눈금·제목 색도 각각 그 색을 따라간다."""
+    c = _curve()
+    s = _settings()
+    s["trace"]["color_left"] = "#0000FF"
+    s["trace"]["color_right"] = "#FF0000"
+    s["trace"]["show_gate_current"] = True
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    named = {t.name: t for t in fig.data}
+    assert named["forward |I_D|"].line.color == "#0000FF"
+    assert named["|I_G|"].line.color == "#0000FF"
+    assert named["forward √|I_D|"].line.color == "#FF0000"
+    assert fig.layout.yaxis.linecolor == "#0000FF"
+    assert fig.layout.yaxis.title.font.color == "#0000FF"
+    assert fig.layout.yaxis2.linecolor == "#FF0000"
+    assert fig.layout.yaxis2.title.font.color == "#FF0000"
+    # x 축은 좌/우 어느 쪽에도 속하지 않으므로 검정을 유지한다.
+    assert fig.layout.xaxis.linecolor == "#000000"
+
+
+def test_fit_accent_color_is_independent_of_trace_colors():
+    """fit/V_th 의 빨강은 raw 커브와 구분하기 위한 고정 강조색이다."""
+    c = _curve()
+    s = _settings()
+    s["trace"]["color_left"] = "#0000FF"
+    s["trace"]["color_right"] = "#00FF00"
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    named = {t.name: t for t in fig.data}
+    assert named["fit"].line.color == "#d62728"
+    assert named["V_th"].marker.color == "#d62728"
 
 
 def test_no_plotly_legend():

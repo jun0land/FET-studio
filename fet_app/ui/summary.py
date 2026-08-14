@@ -11,6 +11,7 @@ import dataclasses
 import streamlit as st
 
 from fet_app.export import summary_dataframe, summary_row
+from fet_app.figure_common import px_size
 from fet_app.figure_output import output_figure
 from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import output_diagnostics, transfer_metrics
@@ -67,13 +68,13 @@ def effective_group(app, g):
 
 def _transfer_settings(app):
     s = app.settings
-    return {"geom": s["geom"], "style": s["style"], "axes": s["transfer_axes"],
+    return {"geom": s["transfer_geom"], "style": s["style"], "axes": s["transfer_axes"],
             "trace": s["transfer_style"], "insets": s["insets"]}
 
 
 def _output_settings(app):
     s = app.settings
-    return {"geom": s["geom"], "style": s["style"], "axes": s["output_axes"],
+    return {"geom": s["output_geom"], "style": s["style"], "axes": s["output_axes"],
             "trace": s["output_style"], "insets": s["insets"]}
 
 
@@ -144,13 +145,27 @@ def render_device_view(app, k: float) -> None:
     has_o = _has_output_data(g.output)
     if has_t and has_o:
         cols = st.columns(2, gap="medium")
+        # Transfer 기본값(8x10)과 Output 기본값(10x8)은 세로 길이가 달라 나란히
+        # 놓으면 높이가 어긋난다. 화면에서만 Transfer 를 Output 의 렌더링 높이에
+        # 맞춰 비율 그대로 더 줄인다 — 내보내기는 k=1.0 이라 영향을 받지 않는다.
+        transfer_geom = app.settings["transfer_geom"]
+        output_geom = app.settings["output_geom"]
+        k_transfer = k * (float(output_geom["page_h_in"]) / float(transfer_geom["page_h_in"]))
         with cols[0]:
             # 이 마커가 있어야 RESPONSIVE_CSS 가 이 그래프 2열 블록을 찾아
             # 900px 미만에서 세로로 쌓는다.
             st.markdown(GRAPHS_ANCHOR, unsafe_allow_html=True)
-            st.plotly_chart(transfer_figure(g.transfer, tm, _transfer_settings(app), k),
+            st.plotly_chart(transfer_figure(g.transfer, tm, _transfer_settings(app), k_transfer),
                             use_container_width=False, key=f"tf_{g.name}")
-            _metric_card(tm)
+            # 지표 테이블도 축소된 그래프 폭에 맞춰 좁힌다. st.container(key=...) 가
+            # .st-key-<key> 클래스를 붙여주므로 그 클래스에 max-width 를 건다.
+            t_w_px, _t_h_px = px_size(transfer_geom, k_transfer)
+            st.markdown(
+                f"<style>.st-key-transfer_metric_{g.name} {{ max-width: {t_w_px}px; }}</style>",
+                unsafe_allow_html=True,
+            )
+            with st.container(key=f"transfer_metric_{g.name}"):
+                _metric_card(tm)
         with cols[1]:
             st.plotly_chart(output_figure(g.output, _output_settings(app), k),
                             use_container_width=False, key=f"of_{g.name}")

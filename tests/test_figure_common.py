@@ -8,12 +8,14 @@ from fet_app.figure_common import (DPI, apply_inset_text, axis_layout, domains,
 
 
 def test_px_size_uses_96_dpi():
-    geom = DEFAULTS["geom"]
-    assert px_size(geom, 1.0) == (int(10 * DPI), int(8 * DPI)) == (960, 768)
+    """Transfer/Output 은 배경 크기를 따로 갖는다 — 기본값은 8x10 / 10x8."""
+    assert px_size(DEFAULTS["output_geom"], 1.0) == (int(10 * DPI), int(8 * DPI)) == (960, 768)
+    assert px_size(DEFAULTS["transfer_geom"], 1.0) == (int(8 * DPI), int(10 * DPI)) == (768, 960)
 
 
 def test_px_size_scales():
-    assert px_size(DEFAULTS["geom"], 0.5) == (480, 384)
+    assert px_size(DEFAULTS["output_geom"], 0.5) == (480, 384)
+    assert px_size(DEFAULTS["transfer_geom"], 0.5) == (384, 480)
 
 
 def test_domains_from_percentages():
@@ -58,8 +60,27 @@ def test_axis_layout_manual_range_wins():
     assert lay["range"] == [-50.0, 10.0]
 
 
+def test_axis_layout_defaults_to_black():
+    """axis_color 를 안 넘기는 기존 호출부는 동작이 바뀌지 않아야 한다."""
+    lay = axis_layout(DEFAULTS["output_axes"]["y"], DEFAULTS["style"], k=1.0)
+    assert lay["linecolor"] == "#000000"
+    assert lay["tickcolor"] == "#000000"
+    assert lay["title"]["font"]["color"] == "#000000"
+    assert lay["tickfont"]["color"] == "#000000"
+
+
+def test_axis_layout_axis_color_applies_to_line_ticks_and_fonts():
+    cfg = copy.deepcopy(DEFAULTS["transfer_axes"]["y"])   # minor_dtick 이 있는 축
+    lay = axis_layout(cfg, DEFAULTS["style"], k=1.0, axis_color="#FF0000")
+    assert lay["linecolor"] == "#FF0000"
+    assert lay["tickcolor"] == "#FF0000"
+    assert lay["title"]["font"]["color"] == "#FF0000"
+    assert lay["tickfont"]["color"] == "#FF0000"
+    assert lay["minor"]["tickcolor"] == "#FF0000"
+
+
 def test_new_figure_is_white_and_unmargined():
-    fig = new_figure(DEFAULTS["geom"], k=1.0)
+    fig = new_figure(DEFAULTS["output_geom"], k=1.0)
     assert fig.layout.paper_bgcolor == "#FFFFFF"
     assert fig.layout.plot_bgcolor == "#FFFFFF"
     assert fig.layout.margin.l == 0
@@ -89,7 +110,7 @@ def test_apply_inset_text_skips_empty_text():
 
 
 def test_plot_px_size_matches_domain_fraction_of_page():
-    geom = DEFAULTS["geom"]
+    geom = DEFAULTS["output_geom"]
     w, h = px_size(geom, 1.0)
     x_dom, y_dom = domains(geom)
     plot_w, plot_h = plot_px_size(geom, 1.0)
@@ -98,7 +119,7 @@ def test_plot_px_size_matches_domain_fraction_of_page():
 
 
 def test_plot_px_size_scales_with_k():
-    geom = DEFAULTS["geom"]
+    geom = DEFAULTS["output_geom"]
     full = plot_px_size(geom, 1.0)
     half = plot_px_size(geom, 0.5)
     assert half[0] == full[0] / 2

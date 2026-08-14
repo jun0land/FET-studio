@@ -89,7 +89,7 @@ def test_empty_curve_still_produces_a_figure():
     """방어가 없으면 np.min 이 zero-size 배열에서 터진다."""
     empty = TransferCurve(forward=pd.DataFrame(columns=["V_G", "I_G", "I_D"]))
     settings = {
-        "geom": copy.deepcopy(DEFAULTS["geom"]),
+        "geom": copy.deepcopy(DEFAULTS["transfer_geom"]),
         "style": copy.deepcopy(DEFAULTS["style"]),
         "axes": copy.deepcopy(DEFAULTS["transfer_axes"]),
         "trace": copy.deepcopy(DEFAULTS["transfer_style"]),

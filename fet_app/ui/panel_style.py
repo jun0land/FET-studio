@@ -33,8 +33,15 @@ def render(app) -> None:
         "선 두께", min_value=0.5, max_value=10.0,
         value=float(style["line_width"]), step=LINE_WIDTH_STEP, key="lw")
 
-    s["transfer_style"]["color"] = st.color_picker(
-        "Transfer 색", value=s["transfer_style"]["color"], key="tcolor")
+    c1, c2 = st.columns(2)
+    with c1:
+        s["transfer_style"]["color_left"] = st.color_picker(
+            "좌축 색 (log|I_D|)", value=s["transfer_style"]["color_left"],
+            key="tcolor_l")
+    with c2:
+        s["transfer_style"]["color_right"] = st.color_picker(
+            "우축 색 (√|I_D|)", value=s["transfer_style"]["color_right"],
+            key="tcolor_r")
     s["transfer_style"]["show_reverse"] = st.checkbox(
         "reverse 표시", value=s["transfer_style"]["show_reverse"], key="trev")
     s["transfer_style"]["show_fit"] = st.checkbox(
@@ -57,16 +64,31 @@ def render_page_and_presets(app) -> None:
     """
     s = app.settings
     with st.expander("크기 · 배율", expanded=False):
-        geom = s["geom"]
+        # Transfer/Output 은 배경 크기를 따로 갖는다 — 위젯 key 도 반드시 분리해야
+        # 두 세트가 같은 세션 상태를 덮어쓰지 않는다.
+        st.caption("Transfer")
+        tg = s["transfer_geom"]
         c1, c2 = st.columns(2)
         with c1:
-            geom["page_w_in"] = st.number_input("가로 (inch)", min_value=1.0,
-                                                value=float(geom["page_w_in"]),
-                                                step=0.5, key="pw")
+            tg["page_w_in"] = st.number_input("가로 (inch)", min_value=1.0,
+                                              value=float(tg["page_w_in"]),
+                                              step=0.5, key="pw_t")
         with c2:
-            geom["page_h_in"] = st.number_input("세로 (inch)", min_value=1.0,
-                                                value=float(geom["page_h_in"]),
-                                                step=0.5, key="ph")
+            tg["page_h_in"] = st.number_input("세로 (inch)", min_value=1.0,
+                                              value=float(tg["page_h_in"]),
+                                              step=0.5, key="ph_t")
+        st.caption("Output")
+        og = s["output_geom"]
+        c3, c4 = st.columns(2)
+        with c3:
+            og["page_w_in"] = st.number_input("가로 (inch)", min_value=1.0,
+                                              value=float(og["page_w_in"]),
+                                              step=0.5, key="pw_o")
+        with c4:
+            og["page_h_in"] = st.number_input("세로 (inch)", min_value=1.0,
+                                              value=float(og["page_h_in"]),
+                                              step=0.5, key="ph_o")
+        # 미리보기 배율은 두 그래프에 공통으로 걸리는 전역 설정이라 분리하지 않는다.
         auto = st.checkbox("미리보기 배율 자동", value=app.preview_scale is None,
                            key="auto_scale")
         if auto:
