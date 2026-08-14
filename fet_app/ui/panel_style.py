@@ -9,6 +9,7 @@ from fet_app import presets
 from fet_app.constants import (
     ACCENT, FONT_FAMILIES, FONT_SIZE_MAX, FONT_SIZE_MIN, LINE_WIDTH_STEP,
 )
+from fet_app.ui.viewport import FALLBACK_SCALE
 
 
 def render(app) -> None:
@@ -73,7 +74,7 @@ def render_page_and_presets(app) -> None:
         else:
             app.preview_scale = st.number_input(
                 "미리보기 배율 (%)", min_value=25, max_value=200,
-                value=int((app.preview_scale or 0.6) * 100), step=5, key="mscale") / 100.0
+                value=int((app.preview_scale or FALLBACK_SCALE) * 100), step=5, key="mscale") / 100.0
 
     with st.expander("프리셋", expanded=False):
         st.download_button("프리셋 저장 (JSON)",
