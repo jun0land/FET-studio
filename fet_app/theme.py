@@ -229,6 +229,21 @@ div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="s
   }
 }
 
+/* 헤더 문서 버튼 두 개를 붙여서 우측(업로드 버튼 쪽)으로 정렬한다.
+   기본은 st.columns(2) 가 반반씩 나눠 갖고 각 버튼이 자기 칸 왼쪽에
+   붙어서, 버튼 사이·버튼과 업로더 사이에 불필요한 여백이 생겼다.
+   컬럼을 내용 크기로 줄이고(flex: 0 0 auto) 부모 행을 오른쪽 정렬하면
+   두 버튼이 붙어서 오른쪽 끝(업로더 쪽)으로 몰린다. */
+div[data-testid="stHorizontalBlock"]:has(.fet-doc-buttons-anchor) {
+  justify-content: flex-end;
+  gap: 0.4rem !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.fet-doc-buttons-anchor) > div[data-testid="stColumn"] {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
 /* 900px 미만: 전부 세로 스택 */
 @media (max-width: 899px) {
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) { flex-direction: column; }

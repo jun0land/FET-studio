@@ -13,6 +13,9 @@ from fet_app.ui.viewport import preview_scale
 # theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 3열 컨테이너의 첫 컬럼에 심는다.
 SHELL_ANCHOR = "<div class='fet-shell-anchor'></div>"
 
+# theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 문서 버튼 2열의 첫 컬럼에 심는다.
+DOC_BUTTONS_ANCHOR = "<div class='fet-doc-buttons-anchor'></div>"
+
 
 @st.dialog("이용 방법", width="large")
 def _manual_dialog() -> None:
@@ -37,6 +40,8 @@ def _render_doc_buttons() -> None:
     """
     c1, c2 = st.columns(2)
     with c1:
+        # 이 마커가 있어야 RESPONSIVE_CSS 가 이 2열 블록을 찾아 우측 정렬한다.
+        st.markdown(DOC_BUTTONS_ANCHOR, unsafe_allow_html=True)
         if st.button("📖 이용 방법", key="doc_manual_btn"):
             _manual_dialog()
     with c2:
