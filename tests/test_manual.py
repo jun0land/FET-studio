@@ -101,3 +101,19 @@ def test_no_placeholders_in_either_doc():
     for file_name in DOCS.values():
         text = load_doc(file_name)
         assert not re.search(r"\bTBD\b|\bTODO\b", text), file_name
+
+
+def test_no_bare_underscore_variables_outside_code_and_math():
+    """V_th 같은 물리 변수가 코드 스팬(`...`)이나 LaTeX($$...$$) 밖 프로즈에서
+    맨 밑줄(_)로 남아 있으면 안 된다 — 표준 마크다운엔 첨자 문법이 없어서
+    'V_th' 가 그대로 밑줄 붙은 텍스트로 보인다. 코드 스팬 안(`V_th`)은 리터럴
+    식별자라 첨자화하지 않고 그대로 둔다. LaTeX 블록 안(V_{th})은 KaTeX 가
+    네이티브로 첨자 렌더링하므로 대상이 아니다. 이 둘을 제외한 나머지에서
+    'X_y' 패턴이 하나라도 남아 있으면 첨자 처리를 빠뜨린 것이다."""
+    pattern = re.compile(r"[A-Za-zΔεμ]+_[A-Za-z0-9]+")
+    for file_name in DOCS.values():
+        text = load_doc(file_name)
+        no_code = re.sub(r"`[^`]*`", "", text)
+        no_math = re.sub(r"(?s)\$\$.*?\$\$", "", no_code)
+        leftover = pattern.findall(no_math)
+        assert not leftover, f"{file_name} 에 첨자 처리 안 된 밑줄 패턴: {leftover}"

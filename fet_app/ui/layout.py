@@ -30,12 +30,14 @@ HEADER_ROW_ANCHOR = "<div class='fet-header-row-anchor'></div>"
 
 @st.dialog("이용 방법", width="large")
 def _manual_dialog() -> None:
-    st.markdown(load_doc("MANUAL.md"))
+    # unsafe_allow_html: 문서 프로즈의 V_th 같은 변수를 <sub>th</sub> 로 실제
+    # 아래첨자 렌더링하기 위해 필요하다(표준 마크다운엔 첨자 문법이 없다).
+    st.markdown(load_doc("MANUAL.md"), unsafe_allow_html=True)
 
 
 @st.dialog("분석 방법", width="large")
 def _methods_dialog() -> None:
-    st.markdown(load_doc("METHODS.md"))
+    st.markdown(load_doc("METHODS.md"), unsafe_allow_html=True)
 
 
 def render_app() -> None:
