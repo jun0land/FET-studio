@@ -229,19 +229,31 @@ div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="s
   }
 }
 
-/* 헤더 문서 버튼 두 개를 붙여서 우측(업로드 버튼 쪽)으로 정렬한다.
-   기본은 st.columns(2) 가 반반씩 나눠 갖고 각 버튼이 자기 칸 왼쪽에
-   붙어서, 버튼 사이·버튼과 업로더 사이에 불필요한 여백이 생겼다.
-   컬럼을 내용 크기로 줄이고(flex: 0 0 auto) 부모 행을 오른쪽 정렬하면
-   두 버튼이 붙어서 오른쪽 끝(업로더 쪽)으로 몰린다. */
-div[data-testid="stHorizontalBlock"]:has(.fet-doc-buttons-anchor) {
-  justify-content: flex-end;
-  gap: 0.4rem !important;
+/* 헤더 행: 제목·문서 버튼 두 개는 내용 크기로 왼쪽에 붙고, 업로더(4번째 칸)가
+   남는 폭을 전부 가져간다(파일을 자주 올리니 널찍하게). 넷 다 같은
+   st.columns() 의 형제라 gap 이 전부 동일해서 "일정 간격"이 자연히 맞는다.
+
+   이전 버전은 문서 버튼 두 개를 header[1] 안에 st.columns(2) 로 중첩해
+   넣고, 그 안쪽 블록에만 마커를 심어 :has(.fet-doc-buttons-anchor) 로 잡았다.
+   :has(SELECTOR) 는 SELECTOR 가 '어느 깊이의 자손이든' 있으면 매치하므로
+   (직계 자식으로 한정되지 않는다), 마커를 감싼 바깥쪽 헤더 행까지 같이
+   매치돼 flex:0 0 auto 가 제목·업로더 칸에도 걸렸다 — 제목이 오른쪽으로
+   끌려가고 업로더 폭이 줄어드는 회귀였다. 지금은 중첩 자체를 없애 제목·
+   버튼 두 개·업로더를 하나의 st.columns() 로 평평하게 뒀으므로, 마커를
+   담는 stHorizontalBlock 이 이 행 하나뿐이라 :has() 가 잘못된 조상을 잡을
+   여지가 없다(3열 셸에 쓰는 fet-shell-anchor 와 같은, 검증된 패턴). */
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) {
+  align-items: center;
 }
-div[data-testid="stHorizontalBlock"]:has(.fet-doc-buttons-anchor) > div[data-testid="stColumn"] {
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(1),
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(2),
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(3) {
   flex: 0 0 auto !important;
   width: auto !important;
   min-width: 0 !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(4) {
+  flex: 1 1 auto !important;
 }
 
 /* 900px 미만: 전부 세로 스택 */

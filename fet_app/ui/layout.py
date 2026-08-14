@@ -13,8 +13,19 @@ from fet_app.ui.viewport import preview_scale
 # theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 3열 컨테이너의 첫 컬럼에 심는다.
 SHELL_ANCHOR = "<div class='fet-shell-anchor'></div>"
 
-# theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 문서 버튼 2열의 첫 컬럼에 심는다.
-DOC_BUTTONS_ANCHOR = "<div class='fet-doc-buttons-anchor'></div>"
+# theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 헤더 행(제목/문서버튼 2개/업로더,
+# 중첩 없는 단일 st.columns 4열)의 첫 컬럼에 심는다 — 제목·버튼 두 개는 내용
+# 크기로, 업로더는 남는 폭을 다 갖게 한다.
+#
+# 처음엔 문서 버튼 둘을 header[1] 안에 st.columns(2) 로 중첩해서 넣고 그
+# 안쪽 블록에 마커를 심었었다. :has(SELECTOR) 는 SELECTOR 가 '어느 깊이의
+# 자손이든' 있으면 매치하므로(직계 자식으로 한정되지 않는다), 그 마커를
+# 감싸는 바깥쪽 헤더 행까지 같이 매치돼 flex:0 0 auto 가 제목·업로더 칸에도
+# 걸려버렸다 — 제목이 오른쪽으로 끌려가고 업로더 폭이 줄어드는 회귀였다.
+# 중첩을 아예 없애고 제목·버튼 두 개·업로더를 하나의 st.columns() 로 평평하게
+# 두면, 마커를 담는 블록이 이 행 하나뿐이라 :has() 가 잘못된 조상을 잡을
+# 여지가 없다(3열 셸에 쓰는 fet-shell-anchor 와 같은, 검증된 패턴).
+HEADER_ROW_ANCHOR = "<div class='fet-header-row-anchor'></div>"
 
 
 @st.dialog("이용 방법", width="large")
@@ -27,28 +38,6 @@ def _methods_dialog() -> None:
     st.markdown(load_doc("METHODS.md"))
 
 
-def _render_doc_buttons() -> None:
-    """이용 방법/분석 방법 문서 버튼 — 진짜 팝업(모달)으로 띄운다.
-
-    처음엔 st.popover 를 썼는데, 팝오버는 버튼 아래에 내용이 펼쳐지며 레이아웃을
-    밀어내는 느낌이 아코디언과 비슷하다는 피드백을 받아 st.dialog(모달)로
-    바꿨다 — 화면 전체 위에 뜨고 레이아웃을 밀어내지 않는다.
-    색은 NBEDL Exp Assistant 의 사용 설명서(주황)/분석 방법(청록) 배너 색을
-    그대로 따왔다 — CSS 는 theme.py 의 .st-key-doc_manual_btn /
-    .st-key-doc_methods_btn 규칙을 본다 (버튼 위젯이면 종류에 상관없이 key 로
-    같은 클래스가 붙는다).
-    """
-    c1, c2 = st.columns(2)
-    with c1:
-        # 이 마커가 있어야 RESPONSIVE_CSS 가 이 2열 블록을 찾아 우측 정렬한다.
-        st.markdown(DOC_BUTTONS_ANCHOR, unsafe_allow_html=True)
-        if st.button("📖 이용 방법", key="doc_manual_btn"):
-            _manual_dialog()
-    with c2:
-        if st.button("📊 분석 방법", key="doc_methods_btn"):
-            _methods_dialog()
-
-
 def render_app() -> None:
     theme.inject()
     theme.apply_ui_zoom()
@@ -58,15 +47,24 @@ def render_app() -> None:
     # 알려져 있다(고정 헤더/툴바가 위에 얹혀서 생기는 문제). 제목·문서
     # 버튼·업로더 높이가 서로 달라 상단 정렬이면 버튼이 그 죽은 영역에
     # 걸치기 쉬우므로 세로 중앙 정렬로 맞춘다.
-    # 문서 버튼이 use_container_width 없이 라벨 폭만 차지하게 되면서, 버튼
-    # 칸에 34% 를 주던 예전 비율은 빈 공간만 남긴다 — 그 폭을 제목/업로더로
-    # 옮겼다.
-    header = st.columns([0.30, 0.22, 0.48], vertical_alignment="center")
+    #
+    # 제목은 왼쪽에 내용 크기만큼만, 문서 버튼 두 개는 그 옆에 일정 간격으로
+    # 붙고, 업로더는 남는 공간을 전부 차지한다(파일을 자주 올리니 널찍하게).
+    # 네 칸 모두 같은 st.columns() 의 형제라 간격(gap)이 전부 동일하다.
+    # 비율([0.14, 0.11, 0.11, 0.64])은 CSS 가 로드되기 전 잠깐 보일 초기값일
+    # 뿐이고, RESPONSIVE_CSS 의 fet-header-row-anchor 규칙이 실제 폭(제목·
+    # 버튼=내용 크기, 업로더=flex-grow)을 정한다.
+    header = st.columns([0.14, 0.11, 0.11, 0.64], vertical_alignment="center")
     with header[0]:
+        st.markdown(HEADER_ROW_ANCHOR, unsafe_allow_html=True)
         st.markdown("### FET Studio")
     with header[1]:
-        _render_doc_buttons()
+        if st.button("📖 이용 방법", key="doc_manual_btn"):
+            _manual_dialog()
     with header[2]:
+        if st.button("📊 분석 방법", key="doc_methods_btn"):
+            _methods_dialog()
+    with header[3]:
         uploaded = st.file_uploader(
             "측정 파일", type=["xls", "xlsx"], accept_multiple_files=True,
             label_visibility="collapsed", key="uploader",
