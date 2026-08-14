@@ -415,3 +415,34 @@ def apply_ui_zoom() -> None:
 })();
 </script>
 """, height=0)
+
+
+def warn_before_unload() -> None:
+    """새로고침·탭 닫기·다른 페이지로 이동 시 브라우저 기본 확인 팝업을 띄운다.
+
+    Streamlit 세션 상태는 새로고침하면 통째로 날아간다(업로드한 파일·소자별
+    설정 전부) — 실수로 F5 나 뒤로가기를 누르는 걸 막을 방법이 없으니 최소한
+    경고는 하게 한다. Streamlit 자체의 rerun(위젯 조작 시 websocket 으로 다시
+    실행되는 것)은 페이지 unload 가 아니라서 이 핸들러가 걸리지 않는다 — 진짜
+    새로고침/닫기/이동에만 반응한다. `apply_ui_zoom()` 과 같은 이유로
+    `window.parent` 를 통해 실제 앱 창에 리스너를 건다.
+    """
+    import streamlit.components.v1 as components
+
+    components.html("""
+<script>
+(function() {
+  try {
+    var win = window.parent;
+    if (!win.__fetUnloadWarnBound) {
+      win.__fetUnloadWarnBound = true;
+      win.addEventListener('beforeunload', function(e) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      });
+    }
+  } catch (err) { /* 무시 */ }
+})();
+</script>
+""", height=0)
