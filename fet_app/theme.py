@@ -288,14 +288,73 @@ div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-test
   flex: 1 1 auto !important;
 }
 
+/* 실측(Playwright getBoundingClientRect) 결과: 제목 칸의 stElementContainer 가
+   실제 보이는 내용(로고 32px + 텍스트, 33.6px)보다 작은 17.6px 로 측정돼,
+   그 작은 박스만 align-items:center 로 정렬되고 넘쳐난 내용이 8px 아래로
+   처져 보였다 — 버튼 칸(40px)과 높이가 달라 생긴 문제였다. 제목 칸의
+   element-container 를 버튼과 똑같이 40px 로 강제하고 그 안에서 다시
+   flex 중앙 정렬한다.
+
+   그것만으로는 부족했다 — 박스는 40px 이 됐는데 .fet-title 은 그대로 8px
+   처져 있었다. 조상 체인을 전부 실측해 보니 범인은 Streamlit 기본값
+   [data-testid="stMarkdownContainer"] { margin-bottom: -16px } 였다:
+   내용의 실제 높이는 33.59px 인데 음수 아래 마진이 부모(stMarkdown)의 계산
+   높이를 33.59-16 = 17.59px 로 깎아버린다. flex 중앙 정렬은 그 잘못된
+   17.59px 박스를 기준으로 이뤄지고, 내용은 박스 아래로 16px 넘쳐 흘러
+   중심이 정확히 그 절반인 8px 만큼 내려앉았다. 마진을 0 으로 되돌리면
+   stMarkdown 높이가 실제 내용 높이(33.59px)와 같아져 40px 안에서 제대로
+   중앙 정렬된다. (이 음수 마진은 마크다운 뒤에 오는 요소를 끌어올리려는
+   전역 기본값인데, 이 칸은 마크다운 하나뿐이라 없애도 부작용이 없다.) */
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(1) [data-testid="stElementContainer"] {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(1) [data-testid="stMarkdown"],
+div[data-testid="stHorizontalBlock"]:has(.fet-header-row-anchor) > div[data-testid="stColumn"]:nth-child(1) [data-testid="stMarkdownContainer"] {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* 그래프 2열: st.columns(2) 는 두 칸을 50:50 균등 폭으로 만드는데, 그 안의
+   st.plotly_chart(use_container_width=False) 는 고정 픽셀 폭으로 렌더된다.
+   Transfer 는 k_transfer, Output 은 k 로 서로 다르게 스케일되므로 두 그래프
+   폭이 다르고, 좁은 쪽 그래프는 자기 칸(50%) 안에서 왼쪽 정렬돼 남는 공간이
+   두 그래프 '사이'의 빈 여백으로 남았다. 칸을 내용 크기(flex:0 0 auto)로
+   만들면 각 칸이 자기 그래프 실제 렌더 폭만큼만 차지해 두 그래프가 곧바로
+   이어 붙고, 비율이 바뀌면 칸 경계(= 두 그래프 사이 축)도 자동으로 따라
+   움직인다. 헤더 행(.fet-header-row-anchor)에서 이미 검증된 패턴이다.
+   900px 미만의 세로 스택 규칙과 충돌하지 않도록 min-width 로 감싼다.
+
+   :not(:has(.fet-shell-anchor)) 가 반드시 필요하다. :has(SELECTOR) 는
+   SELECTOR 가 '어느 깊이의 자손이든' 있으면 매치한다 — .fet-graphs-anchor 는
+   3열 셸의 가운데 칸 '안'에 있으므로, 그냥 :has(.fet-graphs-anchor) 로
+   쓰면 바깥 3열 셸 블록까지 같이 매치돼 flex:0 0 auto !important 가 편집
+   패널·그래프·소자 리스트 세 칸에 걸린다(실측: 우측 소자 리스트가 통째로
+   사라졌다). 셸 블록에는 .fet-shell-anchor 도 들어 있으므로 그것으로
+   걸러낸다. layout.py 의 헤더 마커 주석이 경고하던 것과 똑같은 함정이다. */
+@media (min-width: 900px) {
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor):not(:has(.fet-shell-anchor)) {
+    justify-content: flex-start;
+  }
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor):not(:has(.fet-shell-anchor)) > div[data-testid="stColumn"] {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+}
+
 /* 900px 미만: 전부 세로 스택 */
 @media (max-width: 899px) {
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) { flex-direction: column; }
   div[data-testid="stHorizontalBlock"]:has(.fet-shell-anchor) > div[data-testid="stColumn"] {
     flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important;
   }
-  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor) { flex-direction: column; }
-  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor) > div[data-testid="stColumn"] {
+  /* 위 min-width:900px 블록과 같은 이유로 셸 블록을 제외한다. 여기서는 셸에
+     걸어야 할 값과 그래프 행에 걸어야 할 값이 우연히 같아 눈에 띄는 증상이
+     없었지만, 잘못된 조상을 잡는 셀렉터를 남겨두면 다음 수정 때 또 밟는다. */
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor):not(:has(.fet-shell-anchor)) { flex-direction: column; }
+  div[data-testid="stHorizontalBlock"]:has(.fet-graphs-anchor):not(:has(.fet-shell-anchor)) > div[data-testid="stColumn"] {
     flex: 1 1 100% !important; min-width: 0 !important; width: 100% !important;
   }
 }
