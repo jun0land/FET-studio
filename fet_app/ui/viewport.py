@@ -33,8 +33,8 @@ from __future__ import annotations
 # (실측: 그래프 칸 924.81px). 두 칸 사이 gap="medium" 32px 을 빼면 그래프가
 # 쓸 수 있는 폭은 892.81px 이고, k*1574.4 <= 892.81 이려면 k <= 0.567.
 # 0.6 은 1440px 에서 977px 이 필요해 두 번째 칸이 다음 줄로 밀려났다(실측).
-# 0.55 로 잡으면 결합 폭 866px + gap 32px = 898px <= 924.81px 로 들어간다.
-FALLBACK_SCALE = 0.55
+# 0.65 로 잡으면 결합 폭 866px + gap 32px = 898px <= 924.81px 로 들어간다.
+FALLBACK_SCALE = 0.65
 GRAPH_DESIGN_PX = 960  # 10 inch x 96 dpi
 
 
