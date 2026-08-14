@@ -57,7 +57,10 @@ def render_app() -> None:
     header = st.columns([0.14, 0.11, 0.11, 0.64], vertical_alignment="center")
     with header[0]:
         st.markdown(HEADER_ROW_ANCHOR, unsafe_allow_html=True)
-        st.markdown("### FET Studio")
+        logo = theme.logo_url()
+        img_tag = f"<img src='{logo}' alt='FET Studio logo'/>" if logo else ""
+        st.markdown(f"<div class='fet-title'>{img_tag}<h3>FET Studio</h3></div>",
+                   unsafe_allow_html=True)
     with header[1]:
         if st.button("📖 이용 방법", key="doc_manual_btn"):
             _manual_dialog()

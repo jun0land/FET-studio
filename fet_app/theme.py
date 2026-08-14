@@ -4,12 +4,12 @@
 로, ``fet_app.ui.summary`` 가 만드는 그래프 2열 블록을
 ``:has(.fet-graphs-anchor)`` 로 찾아 폭/스택 방향을 건다 (스펙 §6.2, §6.1).
 
-포팅 출처: ``photodetector-app/pd_app/theme.py``. 그 앱의 제목·매뉴얼 문구,
-배경/로고 이미지, zoom 및 ResizeObserver 뷰포트 바인딩 JS, 팔레트 피커 전용
-셀렉터(``st-key-pd_*``)는 이식하지 않았다 — 이 앱 전용 UI(Task 17/18)가 아직
-없고, §6.2 는 CSS 미디어 쿼리만으로 4단계 반응형을 처리하므로 JS 관측 루프가
-필요 없다. 남긴 것은 폰트 ``@font-face``, 리퀴드 글래스 패널 스타일, 버튼/입력
-스타일 — 이 앱들이 공유하는 하우스 룩이다.
+포팅 출처: ``photodetector-app/pd_app/theme.py``. 폰트 ``@font-face``, 리퀴드
+글래스 패널 스타일, 버튼/입력 스타일, 배경/로고 이미지는 이식했다 — 이 앱들이
+공유하는 하우스 룩이다. 그 앱의 매뉴얼 드로어 JS, ResizeObserver 뷰포트 바인딩
+JS, 팔레트 피커 전용 셀렉터(``st-key-pd_*``)는 이식하지 않았다 — 이 앱에는
+해당 UI 가 없고, §6.2 는 CSS 미디어 쿼리만으로 4단계 반응형을 처리하므로 JS
+관측 루프가 필요 없다.
 """
 
 from __future__ import annotations
@@ -20,6 +20,25 @@ from fet_app.constants import ACCENT
 
 _ROOT = Path(__file__).resolve().parent.parent
 _FONTS_DIR = _ROOT / "static" / "fonts"
+
+_STATIC_DIR = _ROOT / "static"
+_BG_PATH = _STATIC_DIR / "liquid_bg.jpg"
+_LOGO_PATH = _STATIC_DIR / "logo.png"
+_HAS_BG = _BG_PATH.is_file()
+_HAS_LOGO = _LOGO_PATH.is_file()
+_BG_URL = "app/static/liquid_bg.jpg"
+_LOGO_URL = "app/static/logo.png"
+
+_BG_LAYER = (
+    f"linear-gradient(rgba(255,255,255,0.72), rgba(255,255,255,0.82)), url('{_BG_URL}')"
+    if _HAS_BG else
+    "linear-gradient(135deg, #fdf0ec 0%, #f7f7fb 100%)"
+)
+
+
+def logo_url() -> str | None:
+    """헤더 로고 URL. 에셋이 없으면 None (레이아웃이 로고를 생략한다)."""
+    return _LOGO_URL if _HAS_LOGO else None
 
 # Myriad Pro: 표준 너비(standard width) 정체·이탤릭 5굵기.
 # (weight, style, 파일, local() 이름)
@@ -79,8 +98,8 @@ def _font_face_css() -> str:
 def _app_css() -> str:
     """리퀴드 글래스 패널 + 버튼/입력 스타일 (하우스 룩).
 
-    photodetector-app 의 제목/로고/배경 이미지·매뉴얼 드로어·팔레트 피커 전용
-    셀렉터는 이 앱에 해당 UI 가 없으므로 제외했다.
+    photodetector-app 의 매뉴얼 드로어·팔레트 피커 전용 셀렉터는 이 앱에
+    해당 UI 가 없으므로 제외했다. 제목/로고/배경 이미지는 이식했다.
     """
     return f"""
 <style>
@@ -88,10 +107,11 @@ html, body, [class*="css"], .stApp, button, input, textarea, select {{
     font-family: 'Myriad Pro', 'Pretendard', 'Nanum Gothic', -apple-system, sans-serif !important;
 }}
 
-/* 배경 이미지 에셋(liquid_bg.jpg)은 이 저장소에 없으므로 그라데이션으로 대체 */
 .stApp {{
-    background: linear-gradient(135deg, #fdf0ec 0%, #f7f7fb 100%);
+    background: {_BG_LAYER};
+    background-size: cover;
     background-attachment: fixed;
+    background-position: center;
     color: #1c1c1e;
 }}
 
@@ -167,6 +187,18 @@ html, body, [class*="css"], .stApp, button, input, textarea, select {{
     border: none !important;
 }}
 .st-key-doc_methods_btn button:hover {{ opacity: 0.9; }}
+
+/* 제목 줄. h3 기본 마진이 남아 있으면 vertical_alignment="center" 를 걸어도
+   버튼들과 눈으로 봤을 때 높이가 안 맞는다 — margin:0 으로 제거한다.
+   photodetector-app 의 .pd-title-glass(로고+제목을 flex 로 가운데 정렬,
+   img{{height}}, h2{{margin:0}}) 와 같은 패턴이다. */
+.fet-title {{
+    display: flex; align-items: center; gap: 10px; margin: 0;
+}}
+.fet-title img {{ height: 32px; width: auto; flex-shrink: 0; }}
+.fet-title h3 {{
+    margin: 0; padding: 0; white-space: nowrap;
+}}
 
 h1, h2, h3, h4, p, label, span {{ text-shadow: none; }}
 </style>
