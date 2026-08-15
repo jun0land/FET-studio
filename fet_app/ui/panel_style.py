@@ -9,6 +9,7 @@ from fet_app import presets
 from fet_app.constants import (
     ACCENT, FONT_FAMILIES, FONT_SIZE_MAX, FONT_SIZE_MIN, LINE_WIDTH_STEP,
 )
+from fet_app.ui import color_picker
 from fet_app.ui.viewport import FALLBACK_SCALE
 
 
@@ -33,15 +34,23 @@ def render(app) -> None:
         "선 두께", min_value=0.5, max_value=10.0,
         value=float(style["line_width"]), step=LINE_WIDTH_STEP, key="lw")
 
+    # 축(선·눈금·제목) 색과 커브 선 색은 독립이다. 좌/우 축을 한 행씩 묶어
+    # [축색][선색] 2x2 로 둔다 — 같은 축에 속한 두 색이 나란히 보인다.
+    ts = s["transfer_style"]
     c1, c2 = st.columns(2)
     with c1:
-        s["transfer_style"]["color_left"] = st.color_picker(
-            "좌축 색 (log|I_D|)", value=s["transfer_style"]["color_left"],
-            key="tcolor_l")
+        color_picker.color_picker("좌축 색(log|I_D|)", ts, "axis_color_left",
+                                  key="t_axis_l")
     with c2:
-        s["transfer_style"]["color_right"] = st.color_picker(
-            "우축 색 (√|I_D|)", value=s["transfer_style"]["color_right"],
-            key="tcolor_r")
+        color_picker.color_picker("좌측 선 색(log|I_D|)", ts, "line_color_left",
+                                  key="t_line_l")
+    c3, c4 = st.columns(2)
+    with c3:
+        color_picker.color_picker("우축 색(√|I_D|)", ts, "axis_color_right",
+                                  key="t_axis_r")
+    with c4:
+        color_picker.color_picker("우측 선 색(√|I_D|)", ts, "line_color_right",
+                                  key="t_line_r")
     s["transfer_style"]["show_reverse"] = st.checkbox(
         "reverse 표시", value=s["transfer_style"]["show_reverse"], key="trev")
     s["transfer_style"]["show_fit"] = st.checkbox(
@@ -49,9 +58,8 @@ def render(app) -> None:
     s["transfer_style"]["show_gate_current"] = st.checkbox(
         "|I_G| 표시", value=s["transfer_style"]["show_gate_current"], key="tig")
 
-    s["output_style"]["base_color"] = st.color_picker(
-        "Output 베이스 색", value=s["output_style"].get("base_color", ACCENT),
-        key="ocolor")
+    color_picker.color_picker("Output 베이스 색", s["output_style"], "base_color",
+                              key="o_base", default=ACCENT)
     s["output_style"]["show_reverse"] = st.checkbox(
         "output reverse 표시", value=s["output_style"]["show_reverse"], key="orev")
 

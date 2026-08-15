@@ -105,12 +105,11 @@ def test_gate_current_optional():
 
 
 def test_left_and_right_axes_take_independent_colors():
-    """좌축(log|I_D|, |I_G|)은 color_left, 우축(√|I_D|)은 color_right 를 쓰고
-    축선·눈금·제목 색도 각각 그 색을 따라간다."""
+    """좌축(log|I_D|, |I_G|)과 우축(√|I_D|)은 각각 자기 색을 쓴다."""
     c = _curve()
     s = _settings()
-    s["trace"]["color_left"] = "#0000FF"
-    s["trace"]["color_right"] = "#FF0000"
+    s["trace"].update(axis_color_left="#0000FF", line_color_left="#0000FF",
+                      axis_color_right="#FF0000", line_color_right="#FF0000")
     s["trace"]["show_gate_current"] = True
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
     named = {t.name: t for t in fig.data}
@@ -125,12 +124,44 @@ def test_left_and_right_axes_take_independent_colors():
     assert fig.layout.xaxis.linecolor == "#000000"
 
 
+def test_axis_color_and_line_color_are_separate_settings():
+    """축(선·눈금·제목) 색과 커브 선 색은 서로 독립이다 — 검은 축에 색깔 커브
+    같은 조합이 나와야 한다. |I_G| 는 좌축 커브이므로 line_color_left 를 따른다."""
+    c = _curve()
+    s = _settings()
+    s["trace"].update(axis_color_left="#111111", line_color_left="#0000FF",
+                      axis_color_right="#222222", line_color_right="#00FF00",
+                      show_gate_current=True)
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    named = {t.name: t for t in fig.data}
+    assert named["forward |I_D|"].line.color == "#0000FF"
+    assert named["|I_G|"].line.color == "#0000FF"
+    assert named["forward √|I_D|"].line.color == "#00FF00"
+    # 축은 트레이스 색이 아니라 축 색을 따라간다.
+    assert fig.layout.yaxis.linecolor == "#111111"
+    assert fig.layout.yaxis.tickfont.color == "#111111"
+    assert fig.layout.yaxis.title.font.color == "#111111"
+    assert fig.layout.yaxis2.linecolor == "#222222"
+    assert fig.layout.yaxis2.tickfont.color == "#222222"
+    assert fig.layout.yaxis2.title.font.color == "#222222"
+
+
+def test_default_transfer_colors_are_all_black():
+    """4색으로 나눠도 기본 외관은 그대로(전부 검정)여야 한다."""
+    assert DEFAULTS["transfer_style"]["axis_color_left"] == "#000000"
+    assert DEFAULTS["transfer_style"]["axis_color_right"] == "#000000"
+    assert DEFAULTS["transfer_style"]["line_color_left"] == "#000000"
+    assert DEFAULTS["transfer_style"]["line_color_right"] == "#000000"
+    assert "color_left" not in DEFAULTS["transfer_style"]
+    assert "color_right" not in DEFAULTS["transfer_style"]
+
+
 def test_fit_accent_color_is_independent_of_trace_colors():
     """fit/V_th 의 빨강은 raw 커브와 구분하기 위한 고정 강조색이다."""
     c = _curve()
     s = _settings()
-    s["trace"]["color_left"] = "#0000FF"
-    s["trace"]["color_right"] = "#00FF00"
+    s["trace"].update(axis_color_left="#0000FF", line_color_left="#0000FF",
+                      axis_color_right="#00FF00", line_color_right="#00FF00")
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
     named = {t.name: t for t in fig.data}
     assert named["fit"].line.color == "#d62728"

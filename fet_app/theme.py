@@ -7,9 +7,10 @@
 포팅 출처: ``photodetector-app/pd_app/theme.py``. 폰트 ``@font-face``, 리퀴드
 글래스 패널 스타일, 버튼/입력 스타일, 배경/로고 이미지는 이식했다 — 이 앱들이
 공유하는 하우스 룩이다. 그 앱의 매뉴얼 드로어 JS, ResizeObserver 뷰포트 바인딩
-JS, 팔레트 피커 전용 셀렉터(``st-key-pd_*``)는 이식하지 않았다 — 이 앱에는
-해당 UI 가 없고, §6.2 는 CSS 미디어 쿼리만으로 4단계 반응형을 처리하므로 JS
-관측 루프가 필요 없다.
+JS, 팔레트 피커 전용 셀렉터(``st-key-pd_*``)는 이식하지 않았다 — §6.2 는 CSS
+미디어 쿼리만으로 4단계 반응형을 처리하므로 JS 관측 루프가 필요 없고, 팔레트
+피커 스와치 CSS 는 전역 테마가 아니라 그 컴포넌트(``fet_app.ui.color_picker``)가
+자기 위젯 key 로 직접 만들어 붙인다.
 """
 
 from __future__ import annotations

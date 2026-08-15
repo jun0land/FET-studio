@@ -61,10 +61,21 @@ def test_output_axes_are_linear():
 
 
 def test_one_trace_pair_per_block():
-    fig = output_figure(_curve(n=4), _settings())
+    s = _settings()
+    s["trace"]["show_reverse"] = True
+    fig = output_figure(_curve(n=4), s)
     fwd = [t for t in fig.data if "forward" in (t.name or "")]
     rev = [t for t in fig.data if "reverse" in (t.name or "")]
     assert len(fwd) == 4 and len(rev) == 4
+
+
+def test_reverse_is_off_by_default():
+    """Output 은 블록마다 커브가 여러 개라 reverse 까지 겹치면 지저분해진다 —
+    기본값은 forward 만 그린다."""
+    assert DEFAULTS["output_style"]["show_reverse"] is False
+    fig = output_figure(_curve(n=4), _settings())
+    assert not any("reverse" in (t.name or "") for t in fig.data)
+    assert len([t for t in fig.data if "forward" in (t.name or "")]) == 4
 
 
 def test_block_colors_match_gradient_order():
@@ -85,7 +96,9 @@ def test_manual_color_override():
 
 
 def test_reverse_dashed_same_color():
-    fig = output_figure(_curve(n=2), _settings())
+    s = _settings()
+    s["trace"]["show_reverse"] = True
+    fig = output_figure(_curve(n=2), s)
     f = next(t for t in fig.data if t.name == "V_G = 0 V forward")
     r = next(t for t in fig.data if t.name == "V_G = 0 V reverse")
     assert r.line.dash == "dash"

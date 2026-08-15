@@ -144,17 +144,23 @@ DEFAULTS = {
               "title": "I_{D} (A)", "title_standoff": 20.0},
     },
     "transfer_style": {
-        # 이중 Y축이라 좌(log|I_D|)/우(√|I_D|) 축과 그 트레이스에 각각 색을 준다.
-        # 게이트 전류(|I_G|)는 좌축에 속하므로 color_left 를 따른다.
-        "color_left": "#000000",
-        "color_right": "#000000",
+        # 이중 Y축이라 좌(log|I_D|)/우(√|I_D|) 마다 색을 준다. 축(선·눈금·제목)과
+        # 커브(트레이스) 색은 서로 독립이다 — 검은 축에 색깔 커브처럼 논문에서
+        # 흔한 조합을 만들 수 있어야 한다. 기본값은 넷 다 검정이라 외관은 그대로.
+        # 게이트 전류(|I_G|)는 좌축에 속하므로 line_color_left 를 따른다.
+        "axis_color_left": "#000000",
+        "axis_color_right": "#000000",
+        "line_color_left": "#000000",
+        "line_color_right": "#000000",
         "show_reverse": True,
         "show_gate_current": False,
         "show_fit": True,
     },
     "output_style": {
         "base_color": ACCENT,
-        "show_reverse": True,
+        # Output 은 V_G 블록마다 커브가 여러 개라 reverse 까지 겹치면 그림이
+        # 금세 지저분해진다 — 기본은 forward 만 그린다.
+        "show_reverse": False,
         "lightness_min": 0.18,
         "lightness_max": 0.82,
         "manual_colors": {},   # {v_g(str): "#RRGGBB"} — 비어 있으면 그라데이션 사용

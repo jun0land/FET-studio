@@ -173,7 +173,7 @@ def test_cache_key_is_stable_when_nothing_changes():
 
 
 @pytest.mark.parametrize("mutate", [
-    pytest.param(lambda s: s["transfer_style"].update(color_left="#123456"), id="색"),
+    pytest.param(lambda s: s["transfer_style"].update(line_color_left="#123456"), id="색"),
     pytest.param(lambda s: s["style"].update(line_width=9.0), id="선두께"),
     pytest.param(lambda s: s["style"].update(tick_font_size=42), id="폰트"),
     pytest.param(lambda s: s["transfer_geom"].update(page_w_in=12.0), id="크기"),
@@ -234,14 +234,14 @@ def test_changed_settings_download_new_bytes_not_the_stale_image():
     함수는 나중에 app.settings 가 뒤바뀌어도 자기가 그려질 때의 설정을 그대로
     유지해야 한다(지연 실행 시점과 렌더 시점이 다르기 때문)."""
     app = _app(_group())
-    app.settings["transfer_style"]["color_left"] = "#FF0000"
+    app.settings["transfer_style"]["line_color_left"] = "#FF0000"
     key_red, render_red = export_ui.device_image_plan(app, app.devices[0], "transfer", "png", 1)
     try:
         red = render_red()
     except export.KaleidoUnavailable:
         pytest.skip("kaleido 미설치")
 
-    app.settings["transfer_style"]["color_left"] = "#0000FF"
+    app.settings["transfer_style"]["line_color_left"] = "#0000FF"
     key_blue, render_blue = export_ui.device_image_plan(app, app.devices[0], "transfer", "png", 1)
     blue = render_blue()
 
@@ -255,7 +255,7 @@ def test_same_key_repeat_download_is_served_from_cache():
     """같은 설정으로 다시 누르면 kaleido 를 건너뛴다 — 한 번 클릭이 매번
     3초씩 걸리면 안 된다."""
     app = _app(_group())
-    app.settings["transfer_style"]["color_left"] = "#00AA00"
+    app.settings["transfer_style"]["line_color_left"] = "#00AA00"
     key, render = export_ui.device_image_plan(app, app.devices[0], "transfer", "png", 1)
     calls = {"n": 0}
 

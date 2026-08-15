@@ -24,10 +24,13 @@ def transfer_figure(curve, metrics, settings: dict, k: float = 1.0) -> go.Figure
 
     fig = new_figure(geom, k)
     x_dom, y_dom = domains(geom)
-    # 좌축(log|I_D|, |I_G|)과 우축(√|I_D|)은 각각 자기 색을 쓴다. fit/V_th 의
-    # 빨강(#d62728)은 raw 커브와 구분하기 위한 고정 강조색이라 여기 영향을 받지 않는다.
-    color_left = trace_cfg.get("color_left", "#000000")
-    color_right = trace_cfg.get("color_right", "#000000")
+    # 좌축(log|I_D|, |I_G|)과 우축(√|I_D|)은 각각 자기 색을 쓰고, 축(선·눈금·제목)
+    # 색과 커브(트레이스) 선 색은 서로 독립이다. fit/V_th 의 빨강(#d62728)은 raw
+    # 커브와 구분하기 위한 고정 강조색이라 여기 영향을 받지 않는다.
+    axis_color_left = trace_cfg.get("axis_color_left", "#000000")
+    axis_color_right = trace_cfg.get("axis_color_right", "#000000")
+    line_color_left = trace_cfg.get("line_color_left", "#000000")
+    line_color_right = trace_cfg.get("line_color_right", "#000000")
     lw = max(0.25, float(style["line_width"]) * k)
 
     branches = [("forward", curve.forward, "solid")]
@@ -44,18 +47,18 @@ def transfer_figure(curve, metrics, settings: dict, k: float = 1.0) -> go.Figure
 
         fig.add_trace(go.Scatter(
             x=v, y=i_abs, name=f"{label} |I_D|", mode="lines", yaxis="y",
-            line=dict(color=color_left, width=lw, dash=dash), hoverinfo="skip",
+            line=dict(color=line_color_left, width=lw, dash=dash), hoverinfo="skip",
         ))
         fig.add_trace(go.Scatter(
             x=v, y=np.sqrt(i_abs), name=f"{label} √|I_D|", mode="lines", yaxis="y2",
-            line=dict(color=color_right, width=lw, dash=dash), opacity=0.55,
+            line=dict(color=line_color_right, width=lw, dash=dash), opacity=0.55,
             hoverinfo="skip",
         ))
         if trace_cfg.get("show_gate_current", False):
             fig.add_trace(go.Scatter(
                 x=v, y=_abs_positive(df["I_G"].to_numpy(dtype=float)),
                 name="|I_G|", mode="lines", yaxis="y",
-                line=dict(color=color_left, width=lw * 0.75, dash="dot"),
+                line=dict(color=line_color_left, width=lw * 0.75, dash="dot"),
                 opacity=0.6, hoverinfo="skip",
             ))
 
@@ -100,11 +103,11 @@ def transfer_figure(curve, metrics, settings: dict, k: float = 1.0) -> go.Figure
             axes["y"], style, k,
             data_min=float(np.floor(np.log10(np.min(i_pos)))) if i_pos.size else None,
             data_max=float(np.ceil(np.log10(np.max(i_pos)))) if i_pos.size else None,
-            domain=y_dom, axis_color=color_left),
+            domain=y_dom, axis_color=axis_color_left),
         yaxis2=axis_layout(axes["y2"], style, k,
                            data_min=0.0,
                            data_max=float(np.max(s_pos)) * 1.05 if s_pos.size else None,
-                           side="right", overlaying="y", axis_color=color_right),
+                           side="right", overlaying="y", axis_color=axis_color_right),
     )
     apply_inset_text(fig, insets["sample"].get("text", ""), insets["sample"], style, k)
     return fig
