@@ -76,6 +76,72 @@ def _longest_run(mask: np.ndarray) -> tuple[int, int] | None:
     return best
 
 
+def _prefix(a: np.ndarray) -> np.ndarray:
+    """누적합. p[i] = sum(a[:i]) 이라 구간합이 p[j] - p[i] 로 O(1)."""
+    p = np.zeros(a.size + 1, dtype=float)
+    if a.size:
+        np.cumsum(a, out=p[1:])
+    return p
+
+
+def _best_window_by_r2(x: np.ndarray, y: np.ndarray,
+                       w_min: int, w_max: int) -> tuple[int, int] | None:
+    """[0, n) 안에서 R^2 최대 창 (start, width) 을 찾는다.
+
+    창마다 np.polyfit 을 다시 돌리는 대신 누적합으로 구간합(Sx, Sy, Sxy, Sxx,
+    Syy)을 O(1) 에 얻어 R^2 를 닫힌 식으로 구한다 -> 창당 O(1). R^2 는 창을
+    "고르는 데만" 쓰고, 최종 slope/intercept/r2 는 호출부가 fit_window 로 다시
+    계산한다. 그래서 선택만 같으면 결과는 기존 경로와 비트 단위로 같다.
+
+    수치 안정성: 큰 누적합끼리 빼면 자리수가 날아갈 수 있으므로(catastrophic
+    cancellation) x, y 를 평균만큼 옮긴 뒤 누적한다. R^2 도 1 - SS_res/SS_tot
+    대신 상관계수 제곱 형태(Sxy_c^2 / (Sxx_c x Syy_c))로 계산한다 — 수학적으로
+    같지만 뺄셈이 한 단계 적다.
+    """
+    n = x.size
+    xc = x - x.mean()
+    yc = y - y.mean()
+    p_x, p_y = _prefix(xc), _prefix(yc)
+    p_xx, p_yy, p_xy = _prefix(xc * xc), _prefix(yc * yc), _prefix(xc * yc)
+    # x 가 상수인 창 판정. linear_fit 의 np.ptp(x) == 0 과 정확히 같은 조건을
+    # 누적합으로 옮긴 것 (창 안에 0 이 아닌 diff 가 하나라도 있으면 비상수).
+    p_nz = _prefix((np.diff(x) != 0).astype(float))
+
+    best: tuple[int, int] | None = None
+    best_r2 = 0.0
+    best_n = 0
+    for w in range(w_min, w_max + 1):
+        m = n - w + 1
+        if m <= 0:
+            break
+        i0 = np.arange(m)
+        i1 = i0 + w
+        s_x = p_x[i1] - p_x[i0]
+        s_y = p_y[i1] - p_y[i0]
+        s_xx = p_xx[i1] - p_xx[i0]
+        s_yy = p_yy[i1] - p_yy[i0]
+        s_xy = p_xy[i1] - p_xy[i0]
+        d_xx = s_xx - s_x * s_x / w
+        d_yy = s_yy - s_y * s_y / w
+        num = s_xy - s_x * s_y / w
+        # d_xx <= 0 (x 상수) 또는 d_yy <= 0 (y 상수) 이면 linear_fit 규약대로 0.
+        ok = (d_xx > 0) & (d_yy > 0) & ((p_nz[i1 - 1] - p_nz[i0]) > 0)
+        r2 = np.zeros(m, dtype=float)
+        np.divide(num * num, d_xx * d_yy, out=r2, where=ok)
+
+        # 순차 비교 규칙은 기존 이중 루프와 동일한 순서(w 오름차순, s 오름차순).
+        for s, r in enumerate(r2.tolist()):
+            if best is None:
+                best, best_r2, best_n = (s, w), r, w
+            elif r > best_r2 + FIT_TIE_TOLERANCE:
+                best, best_r2, best_n = (s, w), r, w
+            elif abs(r - best_r2) <= FIT_TIE_TOLERANCE and w > best_n:
+                best, best_r2, best_n = (s, w), r, w
+            elif w == best_n and r > best_r2:
+                best, best_r2, best_n = (s, w), r, w
+    return best
+
+
 def auto_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray) -> FitResult | None:
     """sqrt(|I_D|) vs V_G 에서 R^2 최대 구간을 찾는다.
 
@@ -111,24 +177,14 @@ def auto_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray) -> FitResult | None:
     max_w = max(FIT_MIN_POINTS, int(n * FIT_MAX_FRACTION))
     max_w = min(max_w, n)
 
-    best: FitResult | None = None
-    for w in range(FIT_MIN_POINTS, max_w + 1):
-        for s in range(lo, hi - w + 1):
-            cand = fit_window(v_g, y, s, s + w)
-            if cand is None:
-                continue
-            if best is None:
-                best = cand
-            elif cand.r2 > best.r2 + FIT_TIE_TOLERANCE:
-                best = cand
-            elif abs(cand.r2 - best.r2) <= FIT_TIE_TOLERANCE and cand.n_points > best.n_points:
-                best = cand
-            elif cand.n_points == best.n_points and cand.r2 > best.r2:
-                # 점 개수가 같으면 "더 긴 창 우선" 규칙이 적용되지 않는다 — 이 경우는
-                # 그냥 R^2 가 더 높은 쪽을 쓴다. (동일 점수에서 먼저 찾은 열등한 창에
-                # 눌러앉는 것을 방지)
-                best = cand
-    return best
+    # 후보 영역만 잘라서 창 탐색 (누적합의 크기를 줄여 자리수 손실도 함께 줄인다).
+    # 비교 규칙(동점 tolerance, 긴 창 우선, 같은 길이면 R^2 높은 쪽)은 _best_window_by_r2
+    # 안에 기존 이중 루프와 같은 순서로 그대로 옮겨져 있다.
+    pick = _best_window_by_r2(v_g[lo:hi], y[lo:hi], FIT_MIN_POINTS, max_w)
+    if pick is None:
+        return None
+    s, w = pick
+    return fit_window(v_g, y, lo + s, lo + s + w)
 
 
 def manual_fit_sqrt(v_g: np.ndarray, i_d: np.ndarray,

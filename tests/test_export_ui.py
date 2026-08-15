@@ -111,11 +111,19 @@ def test_device_filename_matches_naming_convention():
 
 def test_export_ui_never_falls_back_to_html():
     """이미지 렌더 실패 시 HTML 로 대체하지 않는다 — 사용자가 PNG/JPG 를
-    받았다고 착각할 수 있어서 제거했다. 실패는 실패로 보여준다."""
+    받았다고 착각할 수 있어서 제거했다. 실패는 실패로 보여준다.
+
+    ZIP 경로는 이제 export.figure_bytes_batch() 를 쓴다 — 이 함수는 예외 대신
+    실패한 항목만 None 을 돌려주므로(항목별 부분 실패를 허용하기 위해),
+    KaleidoUnavailable 을 잡는 대신 blob is None 을 확인해 failed 목록에 담고
+    st.error 로 보여준다. 동작(실패는 실패로 보여준다)은 그대로다."""
     src = inspect.getsource(export_ui)
     assert "to_html" not in src
     assert '"html"' not in src
-    assert "KaleidoUnavailable" in src  # ZIP 은 여전히 잡아서 st.error 로 보여준다
+    assert "figure_bytes_batch" in src
+    assert "blob is None" in src
+    assert "failed.append" in src
+    assert "st.error" in src
 
 
 # ---------------- 개별 다운로드: 클릭 한 번 ----------------

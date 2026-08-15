@@ -1,9 +1,12 @@
 import math
 
 import numpy as np
+import pytest
 
-from fet_app.constants import FIT_MIN_POINTS
-from fet_app.fitting import auto_fit_sqrt, fit_window, linear_fit, manual_fit_sqrt
+from fet_app.constants import FIT_MIN_POINTS, FIT_TIE_TOLERANCE
+from fet_app.fitting import (
+    _best_window_by_r2, auto_fit_sqrt, fit_window, linear_fit, manual_fit_sqrt,
+)
 
 
 def _square_law(v_g, v_th=-10.0, k=2e-8, floor=1e-12):
@@ -93,6 +96,69 @@ def test_auto_fit_returns_none_when_all_noise_floor():
     v_g = np.arange(20, -61, -1, dtype=float)
     i_d = np.full(v_g.size, -1e-12)
     assert auto_fit_sqrt(v_g, i_d) is None
+
+
+def _brute_force_best(x, y, w_min, w_max):
+    """_best_window_by_r2 의 참조 구현 — 창마다 np.polyfit 을 다시 돌린다.
+
+    최적화 전의 auto_fit_sqrt 이중 루프와 같은 비교 순서/규칙.
+    """
+    n = x.size
+    best = None
+    best_r2 = 0.0
+    best_n = 0
+    for w in range(w_min, w_max + 1):
+        for s in range(0, n - w + 1):
+            _slope, _icept, r2 = linear_fit(x[s:s + w], y[s:s + w])
+            if best is None:
+                best, best_r2, best_n = (s, w), r2, w
+            elif r2 > best_r2 + FIT_TIE_TOLERANCE:
+                best, best_r2, best_n = (s, w), r2, w
+            elif abs(r2 - best_r2) <= FIT_TIE_TOLERANCE and w > best_n:
+                best, best_r2, best_n = (s, w), r2, w
+            elif w == best_n and r2 > best_r2:
+                best, best_r2, best_n = (s, w), r2, w
+    return best
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+def test_fast_window_search_matches_brute_force(seed):
+    """누적합 O(1) 탐색이 창마다 polyfit 하는 참조 구현과 같은 창을 고른다.
+
+    누적합 차분은 큰 수끼리 빼는 만큼 자리수 손실 위험이 있어(catastrophic
+    cancellation), "선택되는 창이 바뀌지 않는다"를 직접 못박아 둔다.
+    """
+    rng = np.random.default_rng(seed)
+    v_g = np.arange(0, -60, -1, dtype=float)
+    i_d = _square_law(v_g, v_th=-8.0, k=2e-8)
+    i_d = i_d * (1 + rng.normal(0, 0.02, i_d.size))
+    y = np.sqrt(np.abs(i_d))
+    assert _best_window_by_r2(v_g, y, FIT_MIN_POINTS, 30) == \
+        _brute_force_best(v_g, y, FIT_MIN_POINTS, 30)
+
+
+def test_fast_window_search_matches_brute_force_on_example(transfer_files):
+    """실제 계측 데이터(작은 sqrt|I_D| x 큰 V_G)에서도 창 선택이 같아야 한다."""
+    from fet_app import curves, parsing
+
+    path = transfer_files[0]
+    blob = path.read_bytes()
+    sheets, engine = parsing.load_sheets(blob)
+    info = parsing.SettingsInfo(
+        parsing.parse_settings(parsing.settings_frame(blob, sheets, engine)))
+    df = curves.build_transfer(parsing.data_sheet(sheets), info).forward
+
+    v_g = df["V_G"].to_numpy(dtype=float)
+    y = np.sqrt(np.abs(df["I_D"].to_numpy(dtype=float)))
+    assert _best_window_by_r2(v_g, y, FIT_MIN_POINTS, 25) == \
+        _brute_force_best(v_g, y, FIT_MIN_POINTS, 25)
+
+
+def test_fast_window_search_degenerate_x_scores_zero():
+    """x 가 상수인 창은 linear_fit 규약대로 R^2=0 -> 전부 동점이라 가장 긴 창."""
+    x = np.zeros(30)
+    y = np.arange(30, dtype=float)
+    assert _best_window_by_r2(x, y, FIT_MIN_POINTS, 18) == (0, 18)
 
 
 def test_manual_fit_uses_given_range():

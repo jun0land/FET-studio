@@ -34,23 +34,19 @@ def render(app) -> None:
         "선 두께", min_value=0.5, max_value=10.0,
         value=float(style["line_width"]), step=LINE_WIDTH_STEP, key="lw")
 
-    # 축(선·눈금·제목) 색과 커브 선 색은 독립이다. 좌/우 축을 한 행씩 묶어
-    # [축색][선색] 2x2 로 둔다 — 같은 축에 속한 두 색이 나란히 보인다.
+    # 축(선·눈금·제목) 색과 커브 선 색은 독립이다. 트리거가 32px 정사각형
+    # 스와치라 2x2 로 벌려두면 넓은 컬럼 안에 점 하나만 떠 있는 꼴이 된다.
+    # 네 개를 한 줄에 [좌축][좌선][우축][우선] 순서로 붙여 좌/우가 이웃하게 둔다.
     ts = s["transfer_style"]
-    c1, c2 = st.columns(2)
-    with c1:
-        color_picker.color_picker("좌축 색(log|I_D|)", ts, "axis_color_left",
-                                  key="t_axis_l")
-    with c2:
-        color_picker.color_picker("좌측 선 색(log|I_D|)", ts, "line_color_left",
-                                  key="t_line_l")
-    c3, c4 = st.columns(2)
-    with c3:
-        color_picker.color_picker("우축 색(√|I_D|)", ts, "axis_color_right",
-                                  key="t_axis_r")
-    with c4:
-        color_picker.color_picker("우측 선 색(√|I_D|)", ts, "line_color_right",
-                                  key="t_line_r")
+    st.caption("색 — 좌축 log|I_D| · 우축 √|I_D|")
+    cols = st.columns(4)
+    swatches = (("좌축 색", "axis_color_left", "t_axis_l"),
+                ("좌 선 색", "line_color_left", "t_line_l"),
+                ("우축 색", "axis_color_right", "t_axis_r"),
+                ("우 선 색", "line_color_right", "t_line_r"))
+    for col, (lbl, field, wkey) in zip(cols, swatches):
+        with col:
+            color_picker.color_picker(lbl, ts, field, key=wkey)
     s["transfer_style"]["show_reverse"] = st.checkbox(
         "reverse 표시", value=s["transfer_style"]["show_reverse"], key="trev")
     s["transfer_style"]["show_fit"] = st.checkbox(
@@ -58,8 +54,12 @@ def render(app) -> None:
     s["transfer_style"]["show_gate_current"] = st.checkbox(
         "|I_G| 표시", value=s["transfer_style"]["show_gate_current"], key="tig")
 
-    color_picker.color_picker("Output 베이스 색", s["output_style"], "base_color",
-                              key="o_base", default=ACCENT)
+    # 스와치 하나뿐이라도 컬럼에 넣는다 — 안 그러면 32px 버튼이 패널 전체
+    # 폭 한가운데에 홀로 떠서 위 Transfer 줄과 어긋나 보인다.
+    o_col, _ = st.columns([1, 3])
+    with o_col:
+        color_picker.color_picker("Output 베이스 색", s["output_style"], "base_color",
+                                  key="o_base", default=ACCENT)
     s["output_style"]["show_reverse"] = st.checkbox(
         "output reverse 표시", value=s["output_style"]["show_reverse"], key="orev")
 

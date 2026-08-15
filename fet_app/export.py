@@ -90,8 +90,14 @@ def summary_xlsx_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
-def figure_bytes(fig, fmt: str, scale: int = 1) -> bytes:
-    """PNG 는 투명, JPG/PDF 는 흰 배경. 원본 figure 는 건드리지 않는다."""
+_RENDER_FAIL_MSG = (
+    "이미지 렌더에 실패했습니다 (kaleido/Chromium). "
+    "HTML 다운로드로 대체하거나 로컬에서 다시 시도하세요."
+)
+
+
+def _prepared_figure(fig, fmt: str):
+    """(배경까지 적용한 figure 사본, kaleido 형식 이름). 원본은 건드리지 않는다."""
     key = str(fmt).lower()
     if key not in _FORMATS:
         raise ValueError(f"지원하지 않는 형식입니다: {fmt}")
@@ -103,14 +109,117 @@ def figure_bytes(fig, fmt: str, scale: int = 1) -> bytes:
                                  plot_bgcolor="rgba(0,0,0,0)")
     else:
         export_fig.update_layout(paper_bgcolor=bg, plot_bgcolor=bg)
+    return export_fig, kfmt
 
+
+def figure_bytes(fig, fmt: str, scale: int = 1) -> bytes:
+    """PNG 는 투명, JPG/PDF 는 흰 배경. 원본 figure 는 건드리지 않는다."""
+    export_fig, kfmt = _prepared_figure(fig, fmt)
     try:
         return export_fig.to_image(format=kfmt, scale=scale)
     except Exception as e:  # noqa: BLE001
-        raise KaleidoUnavailable(
-            "이미지 렌더에 실패했습니다 (kaleido/Chromium). "
-            "HTML 다운로드로 대체하거나 로컬에서 다시 시도하세요."
-        ) from e
+        raise KaleidoUnavailable(_RENDER_FAIL_MSG) from e
+
+
+def _single_or_none(fig, fmt: str, scale: int) -> bytes | None:
+    """배치 안에서 개별 렌더로 되돌아갈 때 쓰는 래퍼. 형식 오류는 그대로 던진다."""
+    _prepared_figure(fig, fmt)   # ValueError 는 배치에서도 즉시 드러나야 한다
+    try:
+        return figure_bytes(fig, fmt, scale)
+    except KaleidoUnavailable:
+        return None
+
+
+def _kaleido_opts(fig_dict: dict, kfmt: str, scale: int) -> dict:
+    """plotly.io._kaleido.to_image 과 똑같은 opts 를 만든다.
+
+    width/height 를 layout -> template.layout -> plotly 기본값 순으로 찾는 것까지
+    맞춰야 개별 다운로드(figure_bytes)와 배치가 같은 그림을 낸다.
+    """
+    from plotly.io._kaleido import defaults
+
+    layout = fig_dict.get("layout", {})
+    tpl_layout = layout.get("template", {}).get("layout", {})
+    return {
+        "format": kfmt,
+        "width": layout.get("width") or tpl_layout.get("width") or defaults.default_width,
+        "height": layout.get("height") or tpl_layout.get("height") or defaults.default_height,
+        "scale": scale or defaults.default_scale,
+    }
+
+
+def figure_bytes_batch(items: list[tuple[object, str]],
+                       scale: int = 1) -> list[bytes | None]:
+    """여러 장을 Chromium **한 번만** 띄워 연속으로 렌더한다. 실패한 항목은 None.
+
+    figure_bytes 가 타는 plotly fig.to_image() -> kaleido.calc_fig_sync() 경로는
+    호출 한 번마다 `async with Kaleido(...)` 로 Chromium 을 새로 띄우고 내린다
+    (kaleido 1.x 소스 확인). 그래서 ZIP 처럼 여러 장을 만들 때 기동 비용이
+    장 수만큼 그대로 붙는다. 여기서는 세션 하나를 열어 두고 재사용한다.
+
+    실측(Example 1-1 transfer, 8장 연속, PNG 1x):
+      개별 to_image  장당 약 3.3 초 / 8장 합계 26.5 초
+      세션 재사용    기동 약 3.8 초 + 장당 약 0.36 초 / 8장 합계 6.7 초
+
+    한 장짜리라면 이득이 없으므로 그대로 figure_bytes 로 넘긴다.
+
+    opts/kopts 구성은 plotly.io._kaleido.to_image 와 일치시킨다 — 어긋나면
+    plotly 가 번들한 plotly.js 대신 CDN 을 보거나 크기가 달라져서 개별
+    다운로드와 다른 그림이 나온다.
+    """
+    if not items:
+        return []
+    if len(items) == 1:
+        return [_single_or_none(items[0][0], items[0][1], scale)]
+
+    import asyncio
+
+    import kaleido
+    from plotly.io._kaleido import defaults
+    from plotly.io._utils import validate_coerce_fig_to_dict
+
+    specs = []
+    for fig, fmt in items:
+        export_fig, kfmt = _prepared_figure(fig, fmt)
+        fig_dict = validate_coerce_fig_to_dict(export_fig, False)
+        specs.append((fig_dict, _kaleido_opts(fig_dict, kfmt, scale)))
+
+    kopts: dict = {"n": 1}
+    if defaults.plotlyjs:
+        kopts["plotlyjs"] = defaults.plotlyjs
+    if defaults.mathjax:
+        kopts["mathjax"] = defaults.mathjax
+    if defaults.headers:
+        kopts["headers"] = defaults.headers
+
+    out: list[bytes | None] = [None] * len(specs)
+
+    async def _render_all() -> None:
+        async with kaleido.Kaleido(**kopts) as k:
+            for i, (fig_dict, opts) in enumerate(specs):
+                try:
+                    out[i] = await k.calc_fig(fig_dict, opts=opts,
+                                              topojson=defaults.topojson)
+                except Exception:  # noqa: BLE001, S110
+                    out[i] = None   # 이 장만 실패. 나머지는 계속 만든다.
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        # 이미 이벤트 루프 안이면 asyncio.run 을 못 쓴다. 여기서 전부 실패로
+        # 처리하면 '이미지가 하나도 안 만들어졌다'가 되어버리므로, 느리더라도
+        # 개별 경로로 돌아간다.
+        return [_single_or_none(fig, fmt, scale) for fig, fmt in items]
+
+    try:
+        asyncio.run(_render_all())
+    except Exception:  # noqa: BLE001
+        # 세션 자체를 못 띄운 경우. 장마다 figure_bytes 를 부른 것과 같은
+        # 결과(전부 실패)라 호출부의 기존 실패 처리가 그대로 먹는다.
+        return [None] * len(specs)
+    return out
 
 
 def transfer_processed_csv(curve, tm) -> str:

@@ -160,15 +160,21 @@ def render(app) -> None:
     # 그래프 이미지만 담은 ZIP — 요약표 없이. 배율 선택 없이 항상 1x
     # (전체 ZIP/개별 다운로드처럼 세세히 고를 필요 없는, 빠르게 훑어볼 용도).
     if st.button("이미지 ZIP 만들기", use_container_width=True):
-        items: list[tuple[str, bytes]] = []
-        failed = []
+        # figure_bytes_batch: Chromium 을 한 번만 띄워 여러 장을 연속 렌더한다
+        # (개별 to_image 는 장당 약 3.3초, 세션 재사용은 장당 약 0.36초 — 실측).
+        plan: list[tuple[str, object]] = []
         for g in app.devices:
             tm, _od = compute(app, g)
             for kind, fig in _figures(app, g, tm):
-                try:
-                    items.append((f"{g.name}/{kind}.{fmt}", export.figure_bytes(fig, fmt, 1)))
-                except export.KaleidoUnavailable:
-                    failed.append(f"{g.name}/{kind}")
+                plan.append((f"{g.name}/{kind}.{fmt}", fig))
+        blobs = export.figure_bytes_batch([(fig, fmt) for _path, fig in plan], 1)
+        items: list[tuple[str, bytes]] = []
+        failed = []
+        for (path, _fig), blob in zip(plan, blobs):
+            if blob is None:
+                failed.append(path.rsplit(".", 1)[0])
+            else:
+                items.append((path, blob))
         st.session_state["image_zip_blob"] = export.build_zip(items)
         if failed:
             st.error("다음 이미지를 만들지 못해 ZIP 에서 제외했습니다: " + ", ".join(failed))
@@ -201,21 +207,26 @@ def render(app) -> None:
             ("fet_summary.xlsx", export.summary_xlsx_bytes(df)),
             ("fet_summary.csv", export.summary_csv_bytes(df)),
         ]
-        failed = []
+        # figure_bytes_batch 로 이미지를 한꺼번에 렌더(Chromium 세션 재사용) —
+        # CSV 는 이미지와 무관하니 같은 루프에서 먼저 모아둔다.
+        plan: list[tuple[str, object]] = []
         for g in app.devices:
             tm, _od = compute(app, g)
             for kind, fig in _figures(app, g, tm):
-                try:
-                    items.append((f"{g.name}/{kind}.{fmt}",
-                                  export.figure_bytes(fig, fmt, scale)))
-                except export.KaleidoUnavailable:
-                    failed.append(f"{g.name}/{kind}")
+                plan.append((f"{g.name}/{kind}.{fmt}", fig))
             if g.transfer is not None:
                 items.append((f"{g.name}/transfer_processed.csv",
                               export.transfer_processed_csv(g.transfer, tm).encode("utf-8-sig")))
             if g.output is not None:
                 items.append((f"{g.name}/output_processed.csv",
                               export.output_processed_csv(g.output).encode("utf-8-sig")))
+        blobs = export.figure_bytes_batch([(fig, fmt) for _path, fig in plan], scale)
+        failed = []
+        for (path, _fig), blob in zip(plan, blobs):
+            if blob is None:
+                failed.append(path.rsplit(".", 1)[0])
+            else:
+                items.append((path, blob))
         st.session_state["zip_blob"] = export.build_zip(items)
         if failed:
             st.error("다음 이미지를 만들지 못해 ZIP 에서 제외했습니다: " + ", ".join(failed))

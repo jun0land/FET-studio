@@ -129,6 +129,35 @@ def test_png_is_transparent_and_jpg_is_white():
     assert jm.getpixel((0, 0)) == (255, 255, 255)
 
 
+def test_figure_bytes_batch_matches_individual_png():
+    """세션 재사용 배치가 개별 to_image 와 같은 PNG 를 낸다 (스펙 §7).
+
+    SVG/PDF 는 plotly 가 렌더마다 무작위 trace uid 를 박아서 개별 호출끼리도
+    바이트가 다르다 — 래스터 형식으로만 동일성을 본다.
+    """
+    from fet_app.constants import DEFAULTS
+    from fet_app.figure_common import new_figure
+    figs = [new_figure(DEFAULTS["output_geom"], k=0.2),
+            new_figure(DEFAULTS["transfer_geom"], k=0.2)]
+    try:
+        one = [export.figure_bytes(f, "png", scale=1) for f in figs]
+    except export.KaleidoUnavailable:
+        pytest.skip("kaleido 미설치")
+
+    many = export.figure_bytes_batch([(f, "png") for f in figs], scale=1)
+    assert many == one
+
+
+def test_figure_bytes_batch_empty_and_bad_format():
+    from fet_app.constants import DEFAULTS
+    from fet_app.figure_common import new_figure
+    assert export.figure_bytes_batch([]) == []
+    with pytest.raises(ValueError):
+        export.figure_bytes_batch(
+            [(new_figure(DEFAULTS["output_geom"], 0.2), "png"),
+             (new_figure(DEFAULTS["output_geom"], 0.2), "gif")])
+
+
 def test_figure_bytes_rejects_unknown_format():
     from fet_app.figure_common import new_figure
     from fet_app.constants import DEFAULTS
