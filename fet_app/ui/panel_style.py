@@ -9,6 +9,7 @@ from fet_app import presets
 from fet_app.constants import (
     ACCENT, FONT_FAMILIES, FONT_SIZE_MAX, FONT_SIZE_MIN, LINE_WIDTH_STEP,
 )
+from fet_app.derivative import TRANSFER_MODE_LABELS
 from fet_app.ui import color_picker
 from fet_app.ui.viewport import FALLBACK_SCALE
 
@@ -49,6 +50,11 @@ def render(app) -> None:
             color_picker.color_picker(lbl, ts, field, key=wkey)
     s["transfer_style"]["show_reverse"] = st.checkbox(
         "reverse 표시", value=s["transfer_style"]["show_reverse"], key="trev")
+    # dual sweep 은 선 종류가 아니라 반환점 옆 화살표로 구분한다 (forward/
+    # reverse 가 같은 선 종류라 선만으로는 방향을 알 수 없다).
+    s["transfer_style"]["show_sweep_arrows"] = st.checkbox(
+        "스윕 방향 화살표", value=s["transfer_style"].get("show_sweep_arrows", True),
+        key="tarrow", disabled=not s["transfer_style"]["show_reverse"])
     s["transfer_style"]["show_fit"] = st.checkbox(
         "fit 직선 표시", value=s["transfer_style"]["show_fit"], key="tfit")
     s["transfer_style"]["show_gate_current"] = st.checkbox(
@@ -62,6 +68,37 @@ def render(app) -> None:
                                   key="o_base", default=ACCENT)
     s["output_style"]["show_reverse"] = st.checkbox(
         "output reverse 표시", value=s["output_style"]["show_reverse"], key="orev")
+
+    _render_derivative(app)
+
+
+def _render_derivative(app) -> None:
+    """순간미분(포인트별 미분) 그래프 설정. 본 그래프 바로 아래에 그려진다."""
+    d = app.settings["derivative"]
+    st.divider()
+    d["show"] = st.checkbox("순간미분 그래프", value=bool(d.get("show")), key="dshow")
+    if not d["show"]:
+        return
+    modes = list(TRANSFER_MODE_LABELS)
+    d["transfer_mode"] = st.selectbox(
+        "Transfer 미분", modes,
+        index=modes.index(d.get("transfer_mode", "mu")) if d.get("transfer_mode") in modes else 0,
+        format_func=lambda m: TRANSFER_MODE_LABELS[m], key="dmode")
+    c1, c2 = st.columns(2)
+    with c1:
+        # 중앙차분은 노이즈를 그대로 증폭한다 — 미분 '전' 원자료에 거는 창이다.
+        d["smooth"] = st.number_input("평활 창 (점)", min_value=1, max_value=99,
+                                      value=int(d.get("smooth", 1) or 1), step=2,
+                                      key="dsmooth")
+    with c2:
+        types = ["linear", "log"]
+        d["y_type"] = st.selectbox("Y축", types,
+                                   index=types.index(d.get("y_type", "linear")),
+                                   key="dytype")
+    col, _ = st.columns([1, 3])
+    with col:
+        color_picker.color_picker("미분 선 색", d, "line_color", key="dcolor")
+    st.caption("Output 은 |g_d| = |dI_D/dV_D| 로 함께 그립니다.")
 
 
 def render_page_and_presets(app) -> None:

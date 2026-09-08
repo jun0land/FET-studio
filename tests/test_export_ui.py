@@ -60,23 +60,47 @@ def _group(name="1-1", with_transfer=True, with_output=True):
 
 # ---------------- _available_kinds: 커브 종류별 버튼 가드 ----------------
 
+def _kinds_app(devices=(), **deriv):
+    """_available_kinds 는 app.settings["derivative"] 만 본다."""
+    app = AppState(devices=list(devices))
+    app.settings["derivative"].update(deriv)
+    return app
+
+
 def test_available_kinds_both_present():
-    assert export_ui._available_kinds(_group()) == ["transfer", "output"]
+    assert export_ui._available_kinds(_kinds_app(), _group()) == ["transfer", "output"]
 
 
 def test_available_kinds_transfer_only_device_has_no_output_button():
     """MAIN FIX 요구사항: 소자가 가진 커브에만 버튼을 보여준다."""
     g = _group(with_output=False)
-    assert export_ui._available_kinds(g) == ["transfer"]
+    assert export_ui._available_kinds(_kinds_app(), g) == ["transfer"]
 
 
 def test_available_kinds_output_only_device_has_no_transfer_button():
     g = _group(with_transfer=False)
-    assert export_ui._available_kinds(g) == ["output"]
+    assert export_ui._available_kinds(_kinds_app(), g) == ["output"]
 
 
 def test_available_kinds_empty_device_gets_no_buttons():
-    assert export_ui._available_kinds(DeviceGroup(name="empty")) == []
+    assert export_ui._available_kinds(_kinds_app(), DeviceGroup(name="empty")) == []
+
+
+def test_available_kinds_includes_derivatives_only_when_enabled():
+    """미분 그래프는 화면에 켜져 있을 때만 내보내기 목록에 낀다."""
+    g = _group()
+    assert export_ui._available_kinds(_kinds_app(show=True), g) == [
+        "transfer", "transfer_deriv", "output", "output_deriv"]
+
+
+def test_available_kinds_drops_pointwise_mu_without_device_params():
+    """포인트별 μ 는 W/L/ε_r/d 가 없으면 계산 자체가 안 된다 — 버튼도 없어야 한다."""
+    g = _group()
+    g.params = DeviceParams()
+    app = _kinds_app([g], show=True, transfer_mode="mu")
+    assert export_ui._available_kinds(app, g) == ["transfer", "output", "output_deriv"]
+    app.settings["derivative"]["transfer_mode"] = "gm"
+    assert "transfer_deriv" in export_ui._available_kinds(app, g)
 
 
 def test_available_kinds_excludes_interrupted_measurement_with_empty_frame():
@@ -88,7 +112,7 @@ def test_available_kinds_excludes_interrupted_measurement_with_empty_frame():
                     transfer_sources={"x.xls": [MeasurementRun(
                         sheet="Data", label="Data", is_latest=True,
                         kind="transfer", reason="settings", transfer=empty)]})
-    assert export_ui._available_kinds(g) == []
+    assert export_ui._available_kinds(_kinds_app(), g) == []
 
 
 def test_export_ui_reuses_summary_curve_presence_helpers():

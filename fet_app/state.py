@@ -11,7 +11,7 @@ from fet_app.params import DeviceParams
 
 SETTINGS_KEYS = ("transfer_geom", "output_geom", "style",
                  "transfer_axes", "output_axes",
-                 "transfer_style", "output_style", "insets")
+                 "transfer_style", "output_style", "derivative", "insets")
 
 
 def default_settings() -> dict:

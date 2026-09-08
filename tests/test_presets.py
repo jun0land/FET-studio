@@ -8,7 +8,7 @@ def test_extract_contains_only_format_keys():
     p = presets.extract(default_settings())
     assert set(p) == {"transfer_geom", "output_geom", "style",
                       "transfer_axes", "output_axes",
-                      "transfer_style", "output_style", "insets"}
+                      "transfer_style", "output_style", "derivative", "insets"}
 
 
 def test_extract_excludes_measurement_inputs():

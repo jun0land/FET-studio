@@ -28,20 +28,25 @@ import copy
 import streamlit as st
 
 from fet_app import export
+from fet_app.figure_derivative import (
+    output_derivative_figure, transfer_derivative_figure,
+)
 from fet_app.figure_output import output_figure
 from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import transfer_metrics
 from fet_app.ui import panel_style
 from fet_app.ui.panel_fit import fit_range_for
 from fet_app.ui.summary import (
-    _has_output_data, _has_transfer_data, _output_settings, _transfer_settings,
-    cache_key, compute, curve_fingerprint, effective_group,
+    _deriv_settings, _has_output_data, _has_transfer_data, _output_settings,
+    _transfer_settings, cache_key, compute, curve_fingerprint, deriv_mode_blocked,
+    effective_group,
 )
 
 FORMATS = ["PNG (투명)", "JPG (흰 배경)", "SVG", "PDF"]
 _FMT_KEY = {"PNG (투명)": "png", "JPG (흰 배경)": "jpg", "SVG": "svg", "PDF": "pdf"}
 
-_KIND_LABEL = {"transfer": "Transfer", "output": "Output"}
+_KIND_LABEL = {"transfer": "Transfer", "output": "Output",
+               "transfer_deriv": "Transfer 미분", "output_deriv": "Output 미분"}
 _MIME = {
     "png": "image/png", "jpg": "image/jpeg", "svg": "image/svg+xml",
     "pdf": "application/pdf",
@@ -50,21 +55,37 @@ _MIME = {
 
 def _figures(app, g, tm):
     out = []
-    if g.transfer is not None:
-        out.append(("transfer", transfer_figure(g.transfer, tm, _transfer_settings(app), 1.0)))
-    if g.output is not None:
-        out.append(("output", output_figure(g.output, _output_settings(app), 1.0)))
+    for kind in _available_kinds(app, g):
+        out.append((kind, _build_figure(app, g, kind, tm)))
     return out
 
 
-def _available_kinds(g) -> list[str]:
-    """이 소자가 실제로 가진 커브 종류만. summary._has_*_data 재사용 —
-    빈 프레임(중단된 측정)을 '있음'으로 잘못 보고하지 않는다."""
+def _build_figure(app, g, kind: str, tm):
+    if kind == "transfer":
+        return transfer_figure(g.transfer, tm, _transfer_settings(app), 1.0)
+    if kind == "output":
+        return output_figure(g.output, _output_settings(app), 1.0)
+    if kind == "transfer_deriv":
+        return transfer_derivative_figure(
+            g.transfer, app.effective_params(g),
+            _deriv_settings(_transfer_settings(app), app), 1.0)
+    return output_derivative_figure(g.output, _deriv_settings(_output_settings(app), app), 1.0)
+
+
+def _available_kinds(app, g) -> list[str]:
+    """이 소자에서 실제로 내보낼 수 있는 그림 종류. summary._has_*_data 재사용 —
+    빈 프레임(중단된 측정)을 '있음'으로 잘못 보고하지 않는다. 미분 그래프는
+    화면에 켜져 있을 때만(그리고 μ 모드라면 파라미터가 다 있을 때만) 포함한다."""
+    show_deriv = bool(app.settings["derivative"].get("show"))
     kinds = []
     if _has_transfer_data(g.transfer):
         kinds.append("transfer")
+        if show_deriv and not deriv_mode_blocked(app, g):
+            kinds.append("transfer_deriv")
     if _has_output_data(g.output):
         kinds.append("output")
+        if show_deriv:
+            kinds.append("output_deriv")
     return kinds
 
 
@@ -99,6 +120,32 @@ def device_image_plan(app, g, kind: str, fmt: str, scale: int):
         def _render() -> bytes:
             tm = transfer_metrics(curve, params, fit_range)
             return export.figure_bytes(transfer_figure(curve, tm, settings, 1.0), fmt, scale)
+    elif kind == "transfer_deriv":
+        curve = g.transfer
+        params = app.effective_params(g)
+        settings = copy.deepcopy(_deriv_settings(_transfer_settings(app), app))
+        key = cache_key({
+            "kind": kind, "fmt": fmt, "scale": int(scale),
+            "curve": curve_fingerprint(curve),
+            "params": [params.w_um, params.l_um, params.eps_r, params.d_nm],
+            "settings": settings,
+        })
+
+        def _render() -> bytes:
+            return export.figure_bytes(
+                transfer_derivative_figure(curve, params, settings, 1.0), fmt, scale)
+    elif kind == "output_deriv":
+        curve = g.output
+        settings = copy.deepcopy(_deriv_settings(_output_settings(app), app))
+        key = cache_key({
+            "kind": kind, "fmt": fmt, "scale": int(scale),
+            "curve": curve_fingerprint(curve),
+            "settings": settings,
+        })
+
+        def _render() -> bytes:
+            return export.figure_bytes(
+                output_derivative_figure(curve, settings, 1.0), fmt, scale)
     else:
         curve = g.output
         settings = copy.deepcopy(_output_settings(app))
@@ -140,14 +187,18 @@ def _render_device_downloads(app, fmt: str, scale: int) -> None:
     if g is None:
         st.caption("소자를 선택하세요.")
         return
-    kinds = _available_kinds(g)
+    kinds = _available_kinds(app, g)
     if not kinds:
         st.caption("이 소자에는 표시할 커브가 없습니다.")
         return
-    cols = st.columns(len(kinds))
-    for col, kind in zip(cols, kinds):
-        with col:
-            _device_kind_download(app, g, kind, fmt, scale)
+    # 미분 그래프까지 켜면 종류가 최대 4개다. 좁은 패널에서 한 줄에 넷을 두면
+    # 버튼 라벨이 줄바꿈되므로 두 개씩 끊어 놓는다.
+    for row_start in range(0, len(kinds), 2):
+        row = kinds[row_start:row_start + 2]
+        cols = st.columns(len(row))
+        for col, kind in zip(cols, row):
+            with col:
+                _device_kind_download(app, g, kind, fmt, scale)
 
 
 def render(app) -> None:

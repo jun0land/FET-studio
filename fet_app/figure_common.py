@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import plotly.graph_objects as go
 
+from fet_app.constants import (
+    AXIS_TITLE_PAD, SWEEP_ARROW_HEAD_PX, SWEEP_ARROW_MARGIN, TICK_CHAR_W,
+)
 from fet_app.markup import apply_markup
 
 DPI = 96
@@ -173,16 +177,208 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
     return lay
 
 
-def plot_px_size(geom: dict, k: float = 1.0) -> tuple[float, float]:
+def tick_label_texts(lay: dict) -> list[str]:
+    """축 layout 이 실제로 찍을 눈금 라벨(추정). 폭 계산에만 쓴다.
+
+    Plotly 는 텍스트 폭을 우리에게 알려주지 않으므로 라벨 문자열을 우리가 직접
+    재구성한다. tickformat 이 있으면(=평문 소수 구간) 그 자릿수로, 없으면
+    지수 표기('2E-4')로 만든다 — _apply_tick_spacing 이 정하는 규칙 그대로다.
+    """
+    rng = lay.get("range")
+    if not rng:
+        return []
+    lo, hi = float(min(rng)), float(max(rng))
+    if lay.get("type") == "log":
+        # 로그축은 range 가 지수(decade)다. 라벨은 '1E-11' 꼴.
+        return [f"1E{e:+d}" for e in range(math.floor(lo), math.ceil(hi) + 1)]
+
+    dtick = lay.get("dtick") or nice_dtick(lo, hi)
+    try:
+        step = abs(float(dtick))
+    except (TypeError, ValueError):
+        step = 0.0
+    if step <= 0 or not math.isfinite(step):
+        return [f"{lo:g}", f"{hi:g}"]
+
+    fmt = lay.get("tickformat")
+    decimals = None
+    if isinstance(fmt, str) and fmt.startswith(".") and fmt.endswith("f"):
+        try:
+            decimals = int(fmt[1:-1])
+        except ValueError:
+            decimals = None
+
+    out = []
+    n = min(int((hi - lo) / step) + 2, 200)   # 눈금이 비정상적으로 촘촘해도 상한을 둔다
+    for i in range(n):
+        v = math.ceil(lo / step) * step + i * step
+        if v > hi + step * 1e-6:
+            break
+        if decimals is not None:
+            out.append(f"{v:.{decimals}f}")
+        else:
+            mant, exp = f"{v:.0E}".split("E")
+            out.append(f"{mant}E{int(exp):+d}")
+    return out or [f"{lo:g}", f"{hi:g}"]
+
+
+def y_axis_space_px(lay: dict, style: dict, k: float = 1.0) -> float:
+    """Y축 하나가 플롯 바깥에 필요로 하는 폭(px): 눈금 숫자 + standoff + 제목.
+
+    Plotly 는 축 제목을 종이(paper) 안쪽으로 클램프하기 때문에, 여백이 모자라면
+    standoff 를 아무리 키워도 제목이 눈금 숫자 위로 겹쳐 올라간다. 그래서
+    '얼마나 필요한지'를 먼저 재고 fit_y_margins 가 플롯 영역을 그만큼 안쪽으로
+    민다.
+    """
+    tick_px = max(1.0, float(style["tick_font_size"]) * k)
+    title_px = max(1.0, float(style["title_font_size"]) * k)
+    chars = max((len(t) for t in tick_label_texts(lay)), default=0)
+    standoff = float(lay.get("title", {}).get("standoff", 0.0) or 0.0)
+    has_title = bool(lay.get("title", {}).get("text"))
+    need = chars * tick_px * TICK_CHAR_W + AXIS_TITLE_PAD * k
+    if has_title:
+        need += standoff + title_px + AXIS_TITLE_PAD * k
+    return need
+
+
+def fit_y_margins(geom: dict, x_dom: list[float], style: dict, k: float = 1.0,
+                  left_lay: dict | None = None, right_lay: dict | None = None,
+                  min_width: float = 0.30) -> list[float]:
+    """Y축 제목이 눈금 숫자와 겹치지 않도록 x domain 을 안쪽으로 민 값.
+
+    사용자가 정한 여백(geom 의 graph_left_pct/width)이 이미 넉넉하면 그대로
+    돌려준다 — 좁을 때만 줄인다. 플롯이 지나치게 납작해지지 않도록 폭은
+    ``min_width`` 아래로 내려가지 않게 하고, 그 경우 좌/우가 필요로 하는 양의
+    비율대로 남은 여백을 나눈다.
+    """
+    page_w = float(px_size(geom, k)[0])
+    if page_w <= 0:
+        return list(x_dom)
+    need_l = (y_axis_space_px(left_lay, style, k) / page_w) if left_lay else 0.0
+    need_r = (y_axis_space_px(right_lay, style, k) / page_w) if right_lay else 0.0
+
+    left = max(float(x_dom[0]), need_l)
+    right = min(float(x_dom[1]), 1.0 - need_r)
+    if right - left < min_width:
+        total = need_l + need_r
+        slack = max(0.0, 1.0 - min_width)
+        if total > 0:
+            left = slack * need_l / total
+            right = 1.0 - slack * need_r / total
+        else:
+            left, right = (1.0 - min_width) / 2, (1.0 + min_width) / 2
+    return [round(left, 6), round(right, 6)]
+
+
+def plot_px_size(geom: dict, k: float = 1.0,
+                 x_dom: list[float] | None = None,
+                 y_dom: list[float] | None = None) -> tuple[float, float]:
     """플롯 영역(그래프 domain)의 픽셀 크기. 인셋 스와치 기하 계산에 쓴다.
 
     domain 비율은 k 와 무관하지만, 이 함수가 반환하는 픽셀 크기에는 k 가
     반영되어 있으므로 "픽셀 단위로 정한 크기(폰트 등)를 domain 비율로 환산"할 때
     분모로 쓰면 k 배율이 자동으로 맞아떨어진다.
+
+    ``x_dom``/``y_dom`` 을 넘기면 geom 대신 그 domain 을 쓴다 — fit_y_margins 가
+    축 제목 자리를 만드느라 domain 을 안쪽으로 민 경우, 인셋도 그 실제 플롯
+    영역을 기준으로 놓아야 하기 때문이다.
     """
     w, h = px_size(geom, k)
-    x_dom, y_dom = domains(geom)
+    gx, gy = domains(geom)
+    x_dom = gx if x_dom is None else x_dom
+    y_dom = gy if y_dom is None else y_dom
     return w * (x_dom[1] - x_dom[0]), h * (y_dom[1] - y_dom[0])
+
+
+def _clamp_frac(v: float) -> float:
+    """화살표가 플롯 경계(축선) 밖으로 삐져나가지 않게 domain 안쪽으로 자른다."""
+    return float(min(1.0 - SWEEP_ARROW_MARGIN, max(SWEEP_ARROW_MARGIN, v)))
+
+
+def add_curved_arrow(fig: go.Figure, pts, plot_w_px: float, plot_h_px: float,
+                     color: str, width: float, k: float = 1.0) -> None:
+    """domain 비율 폴리라인(마지막 점이 화살촉 끝)을 굽은 화살표로 그린다.
+
+    Plotly 에는 '굽은 화살표'가 없다. 그래서 몸통은 path shape 으로 커브 모양을
+    그대로 따라 그리고, 화살촉만 마지막 구간의 접선 방향으로 짧은 annotation
+    화살표를 얹어 만든다. 좌표는 전부 x/y domain 비율이라 축 종류(log/linear)와
+    무관하고, 화살촉 꼬리 길이만 픽셀이라 k 배율을 곱해 준다.
+    """
+    pts = [(_clamp_frac(x), _clamp_frac(y)) for x, y in pts
+           if math.isfinite(x) and math.isfinite(y)]
+    if len(pts) < 2:
+        return
+    path = "M " + " L ".join(f"{x:.5f},{y:.5f}" for x, y in pts)
+    fig.add_shape(type="path", path=path, xref="x domain", yref="y domain",
+                  layer="above", line=dict(color=color, width=width))
+
+    (x0, y0), (x1, y1) = pts[-2], pts[-1]
+    dx, dy = (x1 - x0) * plot_w_px, (y1 - y0) * plot_h_px   # px, y 는 위쪽이 +
+    norm = math.hypot(dx, dy)
+    if norm <= 0:
+        return
+    tail = SWEEP_ARROW_HEAD_PX * k
+    # ax/ay 는 화살촉 기준 꼬리의 화면 픽셀 오프셋 — 화면 y 는 아래쪽이 +라
+    # 부호가 뒤집힌다.
+    fig.add_annotation(
+        x=x1, y=y1, xref="x domain", yref="y domain",
+        axref="pixel", ayref="pixel", ax=-dx / norm * tail, ay=dy / norm * tail,
+        text="", showarrow=True, arrowhead=2, arrowsize=1.2,
+        arrowwidth=width, arrowcolor=color,
+    )
+
+
+def curve_arrow_points(fx, fy, plot_w_px: float, plot_h_px: float,
+                       skip: float, length: float, offset: float,
+                       from_start: bool, n_out: int = 12):
+    """커브를 따라가는 화살표 몸통 좌표(domain 비율)를 뽑는다.
+
+    ``from_start`` 가 True 면 커브의 첫 점(=반환점에서 출발하는 reverse)에서
+    시작해 진행 방향으로, False 면 마지막 점(=반환점으로 들어오는 forward)을
+    향해 나아가는 순서로 돌려준다. 어느 쪽이든 **마지막 점이 화살촉**이다.
+
+    거리는 플롯 영역의 짧은 변 대비 비율이다 — x/y 데이터 단위가 서로 완전히
+    다르므로(V 와 A) 화면 픽셀 공간에서 재야 눈에 보이는 길이가 맞는다.
+    ``offset`` 은 커브에서 수직으로 띄우는 거리로, forward/reverse 를 서로 반대
+    부호로 주면 두 화살표가 커브 양옆에 나란히 놓인다.
+    """
+    fx = np.asarray(fx, dtype=float)
+    fy = np.asarray(fy, dtype=float)
+    ok = np.isfinite(fx) & np.isfinite(fy)
+    fx, fy = fx[ok], fy[ok]
+    if fx.size < 3:
+        return []
+    if not from_start:                      # 반환점을 향해 가는 쪽
+        fx, fy = fx[::-1], fy[::-1]         # 항상 '반환점에서 바깥으로' 로 맞춘다
+
+    unit = min(plot_w_px, plot_h_px)
+    px, py = fx * plot_w_px, fy * plot_h_px
+    seg = np.hypot(np.diff(px), np.diff(py))
+    dist = np.concatenate(([0.0], np.cumsum(seg))) / max(unit, 1e-9)
+
+    lo, hi = skip, skip + length
+    sel = np.flatnonzero((dist >= lo) & (dist <= hi))
+    if sel.size < 3:
+        # 커브가 짧아 구간이 안 잡히면 앞쪽 일부라도 쓴다.
+        sel = np.arange(min(fx.size, 5))
+    idx = np.unique(np.linspace(sel[0], sel[-1], min(n_out, sel.size)).round().astype(int))
+    if idx.size < 2:
+        return []
+
+    ox, oy = fx[idx], fy[idx]
+    # 수직 오프셋: 각 점의 접선을 픽셀 공간에서 구해 법선 방향으로 민다.
+    tx = np.gradient(ox * plot_w_px)
+    ty = np.gradient(oy * plot_h_px)
+    tn = np.hypot(tx, ty)
+    tn[tn == 0] = 1.0
+    nx, ny = -ty / tn, tx / tn
+    ox = ox + nx * offset * unit / plot_w_px
+    oy = oy + ny * offset * unit / plot_h_px
+
+    pts = list(zip(ox.tolist(), oy.tolist()))
+    if not from_start:
+        pts.reverse()          # forward 는 반환점 쪽이 화살촉이 되도록 되돌린다
+    return pts
 
 
 def new_figure(geom: dict, k: float = 1.0) -> go.Figure:

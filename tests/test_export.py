@@ -174,3 +174,32 @@ def test_export_does_not_mutate_figure():
     except export.KaleidoUnavailable:
         pytest.skip("kaleido 미설치")
     assert fig.layout.paper_bgcolor == "#FFFFFF"   # 화면 표시는 흰 배경 유지
+
+
+def test_export_drops_the_fit_band_but_keeps_everything_else():
+    """fit 구간 음영은 화면 전용이다 — 논문 그림에 배경색을 남기지 않는다.
+    같은 figure 의 다른 shape(레전드 스와치·스윕 화살표)은 그대로 있어야 한다."""
+    from fet_app.constants import DEFAULTS, FIT_BAND_SHAPE_NAME
+    from fet_app.figure_common import new_figure
+
+    fig = new_figure(DEFAULTS["transfer_geom"], k=0.2)
+    fig.add_vrect(x0=0, x1=1, name=FIT_BAND_SHAPE_NAME, line_width=0,
+                  fillcolor="rgba(214,39,40,0.08)")
+    fig.add_shape(type="path", path="M 0,0 L 1,1", xref="x domain", yref="y domain")
+
+    prepared, _fmt = export._prepared_figure(fig, "png")
+    names = [sh.name for sh in prepared.layout.shapes]
+    assert FIT_BAND_SHAPE_NAME not in names
+    assert len(prepared.layout.shapes) == 1
+    # 원본은 건드리지 않는다 — 화면에는 계속 음영이 보여야 한다.
+    assert any(sh.name == FIT_BAND_SHAPE_NAME for sh in fig.layout.shapes)
+
+
+def test_export_leaves_figures_without_a_fit_band_alone():
+    from fet_app.constants import DEFAULTS
+    from fet_app.figure_common import new_figure
+
+    fig = new_figure(DEFAULTS["output_geom"], k=0.2)
+    fig.add_shape(type="line", x0=0, x1=1, y0=0, y1=0)
+    prepared, _fmt = export._prepared_figure(fig, "svg")
+    assert len(prepared.layout.shapes) == 1

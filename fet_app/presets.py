@@ -11,7 +11,7 @@ import json
 
 PRESET_KEYS = ("transfer_geom", "output_geom", "style",
                "transfer_axes", "output_axes",
-               "transfer_style", "output_style", "insets")
+               "transfer_style", "output_style", "derivative", "insets")
 
 
 def extract(settings: dict) -> dict:

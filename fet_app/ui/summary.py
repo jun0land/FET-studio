@@ -16,6 +16,9 @@ import streamlit as st
 
 from fet_app.export import summary_dataframe, summary_row
 from fet_app.figure_common import px_size
+from fet_app.figure_derivative import (
+    output_derivative_figure, transfer_derivative_figure,
+)
 from fet_app.figure_output import output_figure
 from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import output_diagnostics, transfer_metrics
@@ -155,6 +158,42 @@ def _output_settings(app):
             "trace": s["output_style"], "insets": s["insets"]}
 
 
+def _deriv_settings(base: dict, app) -> dict:
+    """미분 그래프용 settings — 본 그래프 설정에 derivative 블록만 얹는다.
+
+    본 그래프 쪽 settings 에 섞지 않는 이유: 그 dict 는 내보내기 캐시 키로도
+    쓰여서, 미분 설정을 만질 때마다 멀쩡한 Transfer/Output 이미지까지 다시
+    렌더하게 된다.
+    """
+    return {**base, "deriv": app.settings["derivative"]}
+
+
+def deriv_mode_blocked(app, g) -> bool:
+    """포인트별 μ 는 W/L/ε_r/d 가 다 있어야 계산된다 — 없으면 그래프 대신 안내."""
+    return (app.settings["derivative"].get("transfer_mode") == "mu"
+            and not app.effective_params(g).is_complete())
+
+
+def _transfer_deriv_chart(app, g, k: float) -> None:
+    if not app.settings["derivative"].get("show") or not _has_transfer_data(g.transfer):
+        return
+    if deriv_mode_blocked(app, g):
+        st.caption("포인트별 μ 는 W · L · ε_r · d 를 모두 입력해야 그립니다.")
+        return
+    st.plotly_chart(
+        transfer_derivative_figure(g.transfer, app.effective_params(g),
+                                   _deriv_settings(_transfer_settings(app), app), k),
+        use_container_width=False, key=f"tdf_{g.name}")
+
+
+def _output_deriv_chart(app, g, k: float) -> None:
+    if not app.settings["derivative"].get("show") or not _has_output_data(g.output):
+        return
+    st.plotly_chart(
+        output_derivative_figure(g.output, _deriv_settings(_output_settings(app), app), k),
+        use_container_width=False, key=f"odf_{g.name}")
+
+
 def _metric_card(tm) -> None:
     st.markdown("**Transfer 지표**")
     if tm is None:
@@ -234,6 +273,7 @@ def render_device_view(app, k: float) -> None:
             st.markdown(GRAPHS_ANCHOR, unsafe_allow_html=True)
             st.plotly_chart(transfer_figure(g.transfer, tm, _transfer_settings(app), k_transfer),
                             use_container_width=False, key=f"tf_{g.name}")
+            _transfer_deriv_chart(app, g, k_transfer)
             # 지표 테이블도 축소된 그래프 폭에 맞춰 좁힌다. st.container(key=...) 가
             # .st-key-<key> 클래스를 붙여주므로 그 클래스에 max-width 를 건다.
             t_w_px, _t_h_px = px_size(transfer_geom, k_transfer)
@@ -246,6 +286,7 @@ def render_device_view(app, k: float) -> None:
         with cols[1]:
             st.plotly_chart(output_figure(g.output, _output_settings(app), k),
                             use_container_width=False, key=f"of_{g.name}")
+            _output_deriv_chart(app, g, k)
             _diagnostic_card(od)
     elif has_t or has_o:
         # 커브가 하나뿐이면 늘리지 않고 10:8 비율 그대로, 가운데에 둔다.
@@ -254,10 +295,12 @@ def render_device_view(app, k: float) -> None:
             if has_t:
                 st.plotly_chart(transfer_figure(g.transfer, tm, _transfer_settings(app), k),
                                 use_container_width=False, key=f"tf_{g.name}")
+                _transfer_deriv_chart(app, g, k)
                 _metric_card(tm)
             else:
                 st.plotly_chart(output_figure(g.output, _output_settings(app), k),
                                 use_container_width=False, key=f"of_{g.name}")
+                _output_deriv_chart(app, g, k)
                 _diagnostic_card(od)
     else:
         st.info("이 소자에는 표시할 커브가 없습니다.")

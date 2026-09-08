@@ -85,6 +85,25 @@ INSET_LINE_HEIGHT = 1.30
 # 실측이 글자당 약 0.35 배라 약간의 여유만 둔다.
 INSET_CHAR_W = 0.40
 
+# 눈금 숫자 폭 추정 계수 (폰트 크기 대비). 축 제목이 눈금 숫자와 겹치지 않도록
+# 필요한 여백을 계산할 때 쓴다 — Plotly 로는 실제 텍스트 폭을 잴 수 없다.
+# 숫자·'E'·부호는 인셋 라벨(공백 포함 0.40)보다 폭이 커서 넉넉히 잡는다.
+TICK_CHAR_W = 0.55
+# 눈금 숫자와 축선 사이 기본 간격 + 제목 뒤 여유 (px, k 배율 적용 전).
+AXIS_TITLE_PAD = 9.0
+
+# fit 구간 음영 shape 의 이름. 내보내기에서 이 이름의 shape 만 걷어낸다
+# (화면에서는 fit 구간을 보여주되, 논문에 넣을 그림에는 배경색을 남기지 않는다).
+FIT_BAND_SHAPE_NAME = "fit_band"
+
+# ---------------- 스윕 방향 화살표 (Transfer) ----------------
+# 전부 '플롯 영역의 짧은 변' 대비 비율. k 배율은 픽셀 크기와 함께 상쇄된다.
+SWEEP_ARROW_SKIP = 0.03     # 반환점에서 이만큼 안쪽에서 화살표를 시작한다
+SWEEP_ARROW_LEN = 0.14      # 화살표 호의 길이
+SWEEP_ARROW_OFFSET = 0.028  # 커브에서 수직으로 띄우는 거리 (forward/reverse 반대편)
+SWEEP_ARROW_HEAD_PX = 10.0  # 화살촉 꼬리 길이 (px, k 적용 전)
+SWEEP_ARROW_MARGIN = 0.015  # 플롯 경계에서 최소 이만큼 안쪽에 둔다
+
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:
     """#RRGGBB + 투명도 -> rgba() 문자열."""
@@ -103,10 +122,12 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
 DEFAULTS = {
     # Transfer/Output 은 각자 독립적인 배경 크기를 갖는다. Transfer 는 이중 Y축이라
     # 세로로 긴 8x10, Output 은 가로로 긴 10x8 이 기본이다.
-    # graph_width_pct: Output 은 68.2 그대로, Transfer 만 65.0 로 줄였다 — Plotly 가
-    # 축 제목을 종이(paper) 안쪽으로 클램프해서, 68.2 에서는 우Y(y2) 제목이 눈금
-    # 숫자와 겹쳤다(-4px). title_standoff 를 아무리 올려도 클램프 때문에 안 밀려서,
-    # 플롯 폭 자체를 줄여 여백을 만드는 것만 실제로 먹힌다(65.0 에서 +16px 확인).
+    # graph_width_pct: Output 은 68.2, Transfer 는 65.0. 원래 Transfer 만 줄인 이유는
+    # Plotly 가 축 제목을 종이(paper) 안쪽으로 클램프해서 68.2 에서 우Y(y2) 제목이
+    # 눈금 숫자와 겹쳤기 때문인데(title_standoff 를 올려도 안 밀린다), 지금은
+    # figure_common.fit_y_margins 가 눈금 라벨 폭을 재서 플롯 영역을 자동으로 안쪽에
+    # 민다. 그래서 이 값은 '여유가 있을 때의 상한'일 뿐이고, 모자라면 자동으로 더
+    # 좁아진다 (기본값에서는 실제 domain 이 0.188~0.812 로 잡힌다).
     "transfer_geom": {"page_w_in": 8.0, "page_h_in": 10.0, "graph_left_pct": 17.9,
                       "graph_top_pct": 11.58, "graph_width_pct": 65.0,
                       "graph_height_pct": 71.77},
@@ -127,10 +148,10 @@ DEFAULTS = {
         "y": {"type": "log", "auto": True, "min": None, "max": None,
               "dtick": 1, "minor_dtick": "D1",
               "title": "|I_{D}| (A)", "title_standoff": 20.0},
-        # 우 Y 는 기본 지오메트리(graph_left 17.9 % + width 68.2 %)에서 오른쪽에
-        # 13.9 % = 107 px 밖에 안 남고 눈금 글자('0.012')가 68 px 를 먹어서, 제목이
-        # 이미 종이 오른쪽 끝에 클램프돼 있다. 그래서 이 값만으로는 간격이 벌어지지
-        # 않는다 — 여유가 필요하면 transfer_geom.graph_width_pct 를 줄여야 한다.
+        # 우 Y 는 눈금 글자('0.012')가 넓어 여백이 가장 빠듯한 축이다. 예전에는
+        # 이 값을 올려도 클램프 때문에 간격이 안 벌어져서 graph_width_pct 를 직접
+        # 줄여야 했지만, 이제는 fit_y_margins 가 이 standoff 까지 포함해 필요한
+        # 폭을 계산하고 플롯 영역을 그만큼 안쪽으로 민다.
         "y2": {"type": "linear", "auto": True, "min": None, "max": None,
                "dtick": None, "minor_dtick": None,
                "title": "√|I_{D}| (A^{0.5})", "title_standoff": 20.0},
@@ -155,6 +176,10 @@ DEFAULTS = {
         "show_reverse": True,
         "show_gate_current": False,
         "show_fit": True,
+        # dual sweep 은 선 종류로 구분하지 않는다 — |I_D| 는 forward/reverse 모두
+        # 실선, fit 을 얹는 √|I_D| 는 모두 점선이고, 방향은 반환점(스윕이 꺾이는
+        # 쪽) 안쪽에 커브 모양을 따라 굽은 작은 화살표로 표시한다.
+        "show_sweep_arrows": True,
     },
     "output_style": {
         "base_color": ACCENT,
@@ -164,6 +189,16 @@ DEFAULTS = {
         "lightness_min": 0.18,
         "lightness_max": 0.82,
         "manual_colors": {},   # {v_g(str): "#RRGGBB"} — 비어 있으면 그라데이션 사용
+    },
+    # 순간미분(포인트별 미분) 그래프. Transfer/Output 본 그래프 아래에 따로 그린다.
+    # smooth 는 미분 '전' 원자료에 거는 이동평균 창(점 개수, 홀수)이다 — 포인트별
+    # 중앙차분은 측정 노이즈를 그대로 증폭하므로 창을 키워 다듬을 수 있게 둔다.
+    "derivative": {
+        "show": False,
+        "transfer_mode": "mu",   # gm | dsqrt | mu
+        "smooth": 1,
+        "y_type": "linear",      # linear | log
+        "line_color": "#000000",
     },
     # p-type output 곡선은 원점(우상단)에서 좌하단으로 그어지므로, 두 인셋 기본값을
     # 데이터가 비어 있는 반대쪽 두 모서리(우하단/좌상단)로 둔다.

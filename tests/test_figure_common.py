@@ -1,12 +1,16 @@
 import copy
 import math
 
+import numpy as np
 import plotly.graph_objects as go
+import pytest
 
 from fet_app.constants import DEFAULTS
-from fet_app.figure_common import (DPI, apply_inset_text, axis_layout, domains,
-                                   new_figure, nice_dtick, plot_px_size, px_size,
-                                   tick_decimals)
+from fet_app.figure_common import (DPI, add_curved_arrow, apply_inset_text,
+                                   axis_layout, curve_arrow_points, domains,
+                                   fit_y_margins, new_figure, nice_dtick,
+                                   plot_px_size, px_size, tick_decimals,
+                                   tick_label_texts, y_axis_space_px)
 
 
 def test_px_size_uses_96_dpi():
@@ -226,3 +230,106 @@ def test_title_standoff_defaults_are_set_and_scale_with_k():
     assert DEFAULTS["output_axes"]["y"]["title_standoff"] == 20.0
     lay = axis_layout(DEFAULTS["transfer_axes"]["y2"], DEFAULTS["style"], k=0.5)
     assert lay["title"]["standoff"] == 10.0
+
+
+# ---------------- Y축 제목 여백 자동 조절 ----------------
+
+def test_tick_label_texts_matches_the_axis_formatting_rules():
+    """폭 추정은 실제로 찍힐 라벨 문자열을 재구성해서 한다."""
+    assert tick_label_texts({"type": "log", "range": [-12.0, -10.0]}) ==         ["1E-12", "1E-11", "1E-10"]
+    assert tick_label_texts({"type": "linear", "range": [0, 0.006],
+                             "dtick": 0.002, "tickformat": ".3f"}) ==         ["0.000", "0.002", "0.004", "0.006"]
+    # tickformat 이 없는 지수 표기 구간
+    assert tick_label_texts({"type": "linear", "range": [-8e-5, -4e-5],
+                             "dtick": 2e-5}) == ["-8E-5", "-6E-5", "-4E-5"]
+    assert tick_label_texts({"type": "linear"}) == []
+
+
+def test_y_axis_space_grows_with_font_size_and_label_length():
+    style = dict(DEFAULTS["style"])
+    lay = axis_layout(DEFAULTS["transfer_axes"]["y"], style, k=1.0,
+                      data_min=-12.0, data_max=-3.0)
+    need = y_axis_space_px(lay, style, k=1.0)
+    assert need > style["tick_font_size"] + style["title_font_size"]
+    # k 를 절반으로 줄이면 필요한 폭도 절반 근처로 줄어든다.
+    half_lay = axis_layout(DEFAULTS["transfer_axes"]["y"], style, k=0.5,
+                           data_min=-12.0, data_max=-3.0)
+    assert y_axis_space_px(half_lay, style, k=0.5) == pytest.approx(need / 2, rel=0.05)
+
+
+def test_fit_y_margins_only_shrinks_when_the_titles_would_not_fit():
+    style = DEFAULTS["style"]
+    geom = copy.deepcopy(DEFAULTS["transfer_geom"])
+    lay = axis_layout(DEFAULTS["transfer_axes"]["y"], style, k=1.0,
+                      data_min=-12.0, data_max=-3.0)
+    tight = fit_y_margins(geom, [0.02, 0.98], style, 1.0, left_lay=lay, right_lay=lay)
+    assert tight[0] > 0.02 and tight[1] < 0.98
+    roomy = fit_y_margins(geom, [0.35, 0.65], style, 1.0, left_lay=lay, right_lay=lay)
+    assert roomy == [0.35, 0.65]
+
+
+def test_fit_y_margins_never_collapses_the_plot_area():
+    """폰트가 터무니없이 커도 플롯이 사라지면 안 된다 — 최소 폭을 지킨다."""
+    style = dict(DEFAULTS["style"], tick_font_size=50, title_font_size=50)
+    geom = {"page_w_in": 2.0, "page_h_in": 2.0, "graph_left_pct": 10.0,
+            "graph_top_pct": 10.0, "graph_width_pct": 80.0, "graph_height_pct": 80.0}
+    lay = axis_layout(DEFAULTS["transfer_axes"]["y"], style, k=1.0,
+                      data_min=-12.0, data_max=-3.0)
+    left, right = fit_y_margins(geom, [0.1, 0.9], style, 1.0,
+                                left_lay=lay, right_lay=lay)
+    assert right - left == pytest.approx(0.30, abs=1e-6)
+    assert 0 < left < right < 1
+
+
+# ---------------- 굽은 화살표 ----------------
+
+def test_curve_arrow_points_start_from_the_turning_point_and_stay_short():
+    """반환점 기준으로 skip 만큼 안쪽에서 시작해 length 만큼만 따라간다."""
+    fx = np.linspace(0.0, 1.0, 200)
+    fy = np.full_like(fx, 0.5)
+    pts = curve_arrow_points(fx, fy, 400.0, 400.0, skip=0.05, length=0.15,
+                             offset=0.0, from_start=True)
+    xs = [p[0] for p in pts]
+    assert 0.04 < min(xs) < 0.06        # skip
+    assert 0.19 < max(xs) < 0.21        # skip + length
+    assert xs == sorted(xs)             # 진행 방향 = 화살촉 쪽
+
+
+def test_curve_arrow_points_reverses_so_the_head_is_at_the_turning_point():
+    fx = np.linspace(0.0, 1.0, 200)
+    fy = np.full_like(fx, 0.5)
+    pts = curve_arrow_points(fx, fy, 400.0, 400.0, skip=0.05, length=0.15,
+                             offset=0.0, from_start=False)
+    xs = [p[0] for p in pts]
+    # from_start=False 는 '마지막 점(=반환점 x=1.0)으로 들어오는' 쪽이다. 거리는
+    # 반환점에서부터 재고(0.05~0.20 안쪽), 마지막 점 = 화살촉이 반환점에 가장 가깝다.
+    assert xs == sorted(xs)
+    assert 0.79 < min(xs) < 0.81
+    assert 0.94 < xs[-1] < 0.96
+
+
+def test_curve_arrow_offset_pushes_the_arrow_off_the_curve():
+    fx = np.linspace(0.0, 1.0, 200)
+    fy = np.full_like(fx, 0.5)
+    up = curve_arrow_points(fx, fy, 400.0, 400.0, 0.05, 0.15, 0.03, True)
+    down = curve_arrow_points(fx, fy, 400.0, 400.0, 0.05, 0.15, -0.03, True)
+    assert up[0][1] > 0.5 > down[0][1]
+
+
+def test_add_curved_arrow_clamps_inside_the_plot_and_points_along_the_tangent():
+    fig = new_figure(DEFAULTS["output_geom"], 1.0)
+    add_curved_arrow(fig, [(-0.5, 0.5), (0.2, 0.5), (0.4, 0.5)],
+                     400.0, 400.0, "#000000", 2.0, 1.0)
+    path = fig.layout.shapes[0].path
+    assert path.startswith("M ")
+    assert all(0.0 <= float(p.split(",")[0]) <= 1.0
+               for p in path.replace("M ", "").split(" L "))
+    ann = fig.layout.annotations[0]
+    assert ann.ax < 0 and ann.ay == 0      # +x 방향으로 진행 -> 꼬리는 왼쪽
+    assert ann.showarrow is True
+
+
+def test_add_curved_arrow_ignores_degenerate_input():
+    fig = new_figure(DEFAULTS["output_geom"], 1.0)
+    add_curved_arrow(fig, [(0.5, 0.5)], 400.0, 400.0, "#000000", 2.0, 1.0)
+    assert not fig.layout.shapes

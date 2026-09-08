@@ -15,7 +15,9 @@ from fet_app.constants import (
     INSET_CHAR_W, INSET_GAP, INSET_LINE_HEIGHT, INSET_PAD_X, INSET_SWATCH_W,
     hex_to_rgba,
 )
-from fet_app.figure_common import apply_inset_text, axis_layout, domains, new_figure, plot_px_size
+from fet_app.figure_common import (
+    apply_inset_text, axis_layout, domains, fit_y_margins, new_figure, plot_px_size,
+)
 from fet_app.markup import apply_markup
 
 
@@ -44,7 +46,8 @@ def _plain_len(html: str) -> int:
 
 
 def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dict,
-                         geom: dict, style: dict, k: float) -> None:
+                         geom: dict, style: dict, k: float,
+                         x_dom: list[float] | None = None) -> None:
     """레전드 항목마다 곡선 색의 선 스와치 + 라벨을 세로로 쌓아 그린다 (스펙 §5.3 보완).
 
     x domain/y domain 좌표계에서 픽셀 단위 폰트 크기를 plot 영역 픽셀 크기(k 반영)로
@@ -52,7 +55,7 @@ def _add_legend_swatches(fig: go.Figure, rows: list[tuple[str, str]], inset: dic
     """
     if not rows:
         return
-    plot_w_px, plot_h_px = plot_px_size(geom, k)
+    plot_w_px, plot_h_px = plot_px_size(geom, k, x_dom)
     if plot_h_px <= 0:
         return
     fs_px = max(1, round(float(inset.get("font_size", 30)) * k))
@@ -181,15 +184,20 @@ def output_figure(curve, settings: dict, k: float = 1.0) -> go.Figure:
     y_lo, y_hi = float(np.min(y_cat)), float(np.max(y_cat))
     pad = (y_hi - y_lo) * 0.05 or 1e-12
 
+    # Y축을 먼저 만들고 그 눈금 숫자·제목이 먹는 폭만큼 플롯 영역을 안쪽으로
+    # 민다 (figure_transfer 와 같은 이유 — Plotly 가 축 제목을 종이 안쪽으로
+    # 클램프해서, 여백이 모자라면 제목이 눈금 숫자에 겹친다).
+    y_lay = axis_layout(axes["y"], style, k,
+                        data_min=y_lo - pad, data_max=y_hi + pad, domain=y_dom)
+    x_dom = fit_y_margins(geom, x_dom, style, k, left_lay=y_lay)
     fig.update_layout(
         xaxis=axis_layout(axes["x"], style, k,
                           data_min=float(np.min(x_cat)), data_max=float(np.max(x_cat)),
                           domain=x_dom),
-        yaxis=axis_layout(axes["y"], style, k,
-                          data_min=y_lo - pad, data_max=y_hi + pad, domain=y_dom),
+        yaxis=y_lay,
     )
 
     # 인셋 레전드 — V_G 목록 (색 스와치 + 라벨, 세로로 쌓기)
-    _add_legend_swatches(fig, legend_rows, insets["legend"], geom, style, k)
+    _add_legend_swatches(fig, legend_rows, insets["legend"], geom, style, k, x_dom)
     apply_inset_text(fig, insets["sample"].get("text", ""), insets["sample"], style, k)
     return fig

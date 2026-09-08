@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pandas as pd
 
-from fet_app.constants import DEFAULTS
+from fet_app.constants import DEFAULTS, FIT_BAND_SHAPE_NAME
 from fet_app.curves import TransferCurve
 from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import transfer_metrics
@@ -53,13 +53,103 @@ def test_second_axis_overlays_on_right():
     assert fig.layout.yaxis2.type == "linear"
 
 
-def test_forward_solid_reverse_dashed():
+def test_dash_marks_the_axis_not_the_sweep_direction():
+    """dual sweep 은 선 종류로 구분하지 않는다 — 논문 관례대로 주 곡선 |I_D| 가
+    실선, fit 을 얹는 √|I_D| 가 점선이고 forward/reverse 는 같은 선 종류다.
+    방향은 화살표가 알려준다."""
     c = _curve(dual=True)
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
     named = {t.name: t for t in fig.data}
-    assert named["forward |I_D|"].line.dash in (None, "solid")
-    assert named["reverse |I_D|"].line.dash == "dash"
+    assert named["forward |I_D|"].line.dash == "solid"
+    assert named["reverse |I_D|"].line.dash == "solid"
+    assert named["forward √|I_D|"].line.dash == "dot"
+    assert named["reverse √|I_D|"].line.dash == "dot"
     assert named["forward |I_D|"].line.color == named["reverse |I_D|"].line.color
+
+
+def test_gate_current_keeps_a_dash_of_its_own():
+    """|I_G| 는 좌축이라 |I_D| 와 색이 같다 — 실선은 |I_D|, 점선은 √|I_D| 가
+    가져갔으므로 파선으로 구분해야 겹쳐 보이지 않는다."""
+    c = _curve()
+    s = _settings()
+    s["trace"]["show_gate_current"] = True
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    assert next(t for t in fig.data if t.name == "|I_G|").line.dash == "dash"
+
+
+def _arrow_shapes(fig):
+    return [sh for sh in fig.layout.shapes if sh.type == "path"]
+
+
+def test_sweep_direction_arrows_are_drawn_inside_the_plot():
+    """반환점 쪽에 가는 방향·오는 방향 화살표 두 개. 몸통은 커브를 따라가는
+    path, 화살촉은 접선 방향 annotation 이다."""
+    c = _curve(dual=True)
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
+    arrows = _arrow_shapes(fig)
+    assert len(arrows) == 2
+    heads = [a for a in fig.layout.annotations if a.showarrow]
+    assert len(heads) == 2
+    for sh in arrows:
+        coords = [p.split(",") for p in sh.path.replace("M ", "").split(" L ")]
+        for x, y in coords:
+            assert 0.0 <= float(x) <= 1.0
+            assert 0.0 <= float(y) <= 1.0
+    for a in heads:
+        assert 0.0 <= a.x <= 1.0 and 0.0 <= a.y <= 1.0
+
+
+def test_sweep_arrows_point_in_opposite_directions():
+    """forward 는 반환점을 향해, reverse 는 반환점에서 나오는 방향이어야 한다."""
+    c = _curve(dual=True)
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
+    ax = [a.ax for a in fig.layout.annotations if a.showarrow]
+    assert len(ax) == 2
+    assert ax[0] * ax[1] < 0
+
+
+def test_sweep_arrows_absent_without_reverse_or_when_toggled_off():
+    single = _curve(dual=False)
+    fig = transfer_figure(single, transfer_metrics(single, PARAMS), _settings())
+    assert not _arrow_shapes(fig)
+
+    c = _curve(dual=True)
+    s = _settings()
+    s["trace"]["show_sweep_arrows"] = False
+    assert not _arrow_shapes(transfer_figure(c, transfer_metrics(c, PARAMS), s))
+
+    s2 = _settings()
+    s2["trace"]["show_reverse"] = False
+    assert not _arrow_shapes(transfer_figure(c, transfer_metrics(c, PARAMS), s2))
+
+
+def test_fit_band_is_named_so_export_can_drop_it():
+    """fit 구간 음영은 화면 전용이다 — 내보내기가 골라낼 수 있게 이름을 단다."""
+    c = _curve()
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
+    bands = [sh for sh in fig.layout.shapes if sh.name == FIT_BAND_SHAPE_NAME]
+    assert len(bands) == 1
+    assert bands[0].type == "rect"
+
+
+def test_plot_area_shrinks_to_make_room_for_the_y_axis_titles():
+    """FIX: 우Y 제목이 눈금 숫자('0.012')와 겹쳤다. 눈금 글자 폭 + standoff +
+    제목 폭을 재서 플롯 영역(x domain)을 그만큼 안쪽으로 민다."""
+    c = _curve()
+    s = _settings()
+    s["geom"]["graph_left_pct"] = 5.0     # 일부러 여백을 좁게 준다
+    s["geom"]["graph_width_pct"] = 90.0
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    left, right = fig.layout.xaxis.domain
+    page_w = fig.layout.width
+    assert left * page_w > 100      # 좌축 '1E-11' + 제목이 들어갈 만큼
+    assert (1 - right) * page_w > 100
+    # 여백이 넉넉하면 사용자가 정한 domain 을 그대로 존중한다.
+    wide = _settings()
+    wide["geom"]["graph_left_pct"] = 30.0
+    wide["geom"]["graph_width_pct"] = 40.0
+    fig2 = transfer_figure(c, transfer_metrics(c, PARAMS), wide)
+    assert fig2.layout.xaxis.domain == (0.3, 0.7)
 
 
 def test_reverse_hidden_when_toggled_off():

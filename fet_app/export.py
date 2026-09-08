@@ -12,6 +12,8 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from fet_app.constants import FIT_BAND_SHAPE_NAME
+
 SUMMARY_COLUMNS = [
     "Device", "Transfer file", "Output file",
     "W (um)", "L (um)", "eps_r", "d (nm)", "C_ox (nF/cm2)", "V_DS (V)",
@@ -104,6 +106,16 @@ def _prepared_figure(fig, fmt: str):
     kfmt, bg = _FORMATS[key]
 
     export_fig = copy.deepcopy(fig)
+    # fit 구간 음영은 화면에서 '어디를 fit 했는지' 보라고 깔아 두는 것이고,
+    # 그림 파일에는 남기지 않는다 (논문 그림에 배경색이 들어가면 안 된다).
+    # 주의: update_layout(shapes=[...]) 는 배열을 **인덱스별로 병합**한다 —
+    # 짧은 목록을 넘기면 남는 원소가 그대로 살아남고 앞쪽 원소는 다른 shape 의
+    # 속성이 덧씌워진다(fit 음영 자리에 화살표가 합쳐졌다). 직접 대입해야
+    # 통째로 교체된다.
+    shapes = tuple(export_fig.layout.shapes or ())
+    if any(getattr(sh, "name", None) == FIT_BAND_SHAPE_NAME for sh in shapes):
+        export_fig.layout.shapes = tuple(
+            sh for sh in shapes if getattr(sh, "name", None) != FIT_BAND_SHAPE_NAME)
     if bg is None:
         export_fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",
                                  plot_bgcolor="rgba(0,0,0,0)")
