@@ -1,4 +1,6 @@
 import io
+import sys
+import types
 import zipfile
 
 import numpy as np
@@ -203,3 +205,110 @@ def test_export_leaves_figures_without_a_fit_band_alone():
     fig.add_shape(type="line", x0=0, x1=1, y0=0, y1=0)
     prepared, _fmt = export._prepared_figure(fig, "svg")
     assert len(prepared.layout.shapes) == 1
+
+
+# ---------------- Chrome 런타임 확보 (Streamlit Cloud apt 실패 대응) ----------------
+
+class _FlakyFigure:
+    """to_image 가 앞의 fail_times 번은 실패하고 그다음부터 성공한다."""
+
+    def __init__(self, fail_times: int):
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def to_image(self, format=None, scale=None):   # noqa: A002
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("Chrome 을 찾을 수 없습니다")
+        return b"IMAGE"
+
+
+def test_figure_bytes_fetches_chrome_once_and_retries(monkeypatch):
+    """Streamlit Cloud 는 apt 로 chromium 을 못 깐다 — 첫 실패 때 kaleido 로
+    Chrome 을 받아 한 번 재시도한다."""
+    fig = _FlakyFigure(fail_times=1)
+    monkeypatch.setattr(export, "_prepared_figure", lambda f, fmt: (fig, "png"))
+    monkeypatch.setattr(export, "_bootstrap_chrome", lambda: True)
+    assert export.figure_bytes(object(), "png") == b"IMAGE"
+    assert fig.calls == 2
+
+
+def test_figure_bytes_still_reports_failure_when_chrome_is_unavailable(monkeypatch):
+    fig = _FlakyFigure(fail_times=99)
+    monkeypatch.setattr(export, "_prepared_figure", lambda f, fmt: (fig, "png"))
+    monkeypatch.setattr(export, "_bootstrap_chrome", lambda: False)
+    with pytest.raises(export.KaleidoUnavailable):
+        export.figure_bytes(object(), "png")
+    assert fig.calls == 1      # 받아올 수 없으면 헛되이 다시 그리지 않는다
+
+
+def test_bootstrap_chrome_runs_at_most_once_per_process(monkeypatch):
+    """다운로드는 무거우므로 세션당 한 번만 시도한다."""
+    calls = []
+    fake = types.ModuleType("kaleido")
+    fake.get_chrome_sync = lambda: calls.append(1)
+    monkeypatch.setitem(sys.modules, "kaleido", fake)
+    monkeypatch.setattr(export, "_chrome_bootstrap_tried", False)
+    assert export._bootstrap_chrome() is True
+    assert export._bootstrap_chrome() is False
+    assert len(calls) == 1
+
+
+def test_bootstrap_chrome_swallows_download_failures(monkeypatch):
+    fake = types.ModuleType("kaleido")
+
+    def _boom():
+        raise RuntimeError("네트워크 없음")
+
+    fake.get_chrome_sync = _boom
+    monkeypatch.setitem(sys.modules, "kaleido", fake)
+    monkeypatch.setattr(export, "_chrome_bootstrap_tried", False)
+    assert export._bootstrap_chrome() is False
+
+
+def _fake_kaleido_module(results):
+    """calc_fig 가 results 를 순서대로 돌려준다. None 이면 그 장은 실패."""
+    mod = types.ModuleType("kaleido")
+
+    class _Session:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def calc_fig(self, fig_dict, opts=None, topojson=None):
+            value = results.pop(0)
+            if value is None:
+                raise RuntimeError("Chrome 없음")
+            return value
+
+    mod.Kaleido = _Session
+    return mod
+
+
+def test_batch_retries_after_fetching_chrome_when_nothing_rendered(monkeypatch):
+    from fet_app.constants import DEFAULTS
+    from fet_app.figure_common import new_figure
+
+    figs = [(new_figure(DEFAULTS["output_geom"], 0.2), "png") for _ in range(2)]
+    # 1회차는 두 장 다 실패, Chrome 을 받은 뒤 2회차에 성공한다.
+    results = [None, None, b"A", b"B"]
+    monkeypatch.setitem(sys.modules, "kaleido", _fake_kaleido_module(results))
+    monkeypatch.setattr(export, "_bootstrap_chrome", lambda: True)
+    assert export.figure_bytes_batch(figs, 1) == [b"A", b"B"]
+
+
+def test_batch_does_not_retry_when_some_images_rendered(monkeypatch):
+    """한 장만 실패한 것은 브라우저 문제가 아니다 — 다시 그리지 않는다."""
+    from fet_app.constants import DEFAULTS
+    from fet_app.figure_common import new_figure
+
+    figs = [(new_figure(DEFAULTS["output_geom"], 0.2), "png") for _ in range(2)]
+    monkeypatch.setitem(sys.modules, "kaleido", _fake_kaleido_module([b"A", None]))
+    monkeypatch.setattr(export, "_bootstrap_chrome",
+                        lambda: pytest.fail("재시도하면 안 된다"))
+    assert export.figure_bytes_batch(figs, 1) == [b"A", None]

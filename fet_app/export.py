@@ -93,9 +93,39 @@ def summary_xlsx_bytes(df: pd.DataFrame) -> bytes:
 
 
 _RENDER_FAIL_MSG = (
-    "이미지 렌더에 실패했습니다 (kaleido/Chromium). "
-    "HTML 다운로드로 대체하거나 로컬에서 다시 시도하세요."
+    "이미지 렌더에 실패했습니다 (kaleido/Chrome). "
+    "잠시 후 다시 시도하거나, 로컬에서 실행해 내보내세요."
 )
+
+# Chrome 을 런타임에 받아오는 시도는 세션당 한 번만 한다 (아래 _bootstrap_chrome).
+_chrome_bootstrap_tried = False
+
+
+def _bootstrap_chrome() -> bool:
+    """kaleido 가 쓸 Chrome 을 런타임에 한 번만 내려받는다. 성공하면 True.
+
+    예전에는 Streamlit Community Cloud 에서 packages.txt 로 apt chromium 을
+    깔았는데, 2026-09 부터 그 이미지의 apt 단계가 통째로 실패한다 — 베이스
+    이미지에 남아 있는 Debian 11(bullseye-security) 저장소의 Release 파일이
+    만료(EOL)돼 `apt-get update` 가 비정상 종료하고, 그러면 배포가 pip 설치도
+    못 해보고 중단된다. 우리가 손댈 수 있는 건 packages.txt 를 없애는 것뿐이라
+    Chrome 은 kaleido 1.x 가 직접 받도록 바꿨다.
+
+    렌더가 실패한 뒤에만 부른다 — 이미 Chrome 이 있는 환경(로컬·컨테이너)에서는
+    아예 호출되지 않아 평소 경로가 느려지지 않는다. 첫 내보내기 한 번만
+    느려지고(다운로드), 실패하면 기존 안내 메시지로 돌아간다.
+    """
+    global _chrome_bootstrap_tried
+    if _chrome_bootstrap_tried:
+        return False
+    _chrome_bootstrap_tried = True
+    try:
+        import kaleido
+
+        kaleido.get_chrome_sync()
+        return True
+    except Exception:  # noqa: BLE001
+        return False   # kaleido 0.x(자체 바이너리 동봉)이거나 다운로드 실패
 
 
 def _prepared_figure(fig, fmt: str):
@@ -130,6 +160,12 @@ def figure_bytes(fig, fmt: str, scale: int = 1) -> bytes:
     try:
         return export_fig.to_image(format=kfmt, scale=scale)
     except Exception as e:  # noqa: BLE001
+        # 브라우저가 없어서 실패한 것일 수 있다 — 한 번만 받아 보고 재시도한다.
+        if _bootstrap_chrome():
+            try:
+                return export_fig.to_image(format=kfmt, scale=scale)
+            except Exception as retry_err:  # noqa: BLE001
+                raise KaleidoUnavailable(_RENDER_FAIL_MSG) from retry_err
         raise KaleidoUnavailable(_RENDER_FAIL_MSG) from e
 
 
@@ -225,12 +261,19 @@ def figure_bytes_batch(items: list[tuple[object, str]],
         # 개별 경로로 돌아간다.
         return [_single_or_none(fig, fmt, scale) for fig, fmt in items]
 
-    try:
-        asyncio.run(_render_all())
-    except Exception:  # noqa: BLE001
-        # 세션 자체를 못 띄운 경우. 장마다 figure_bytes 를 부른 것과 같은
-        # 결과(전부 실패)라 호출부의 기존 실패 처리가 그대로 먹는다.
-        return [None] * len(specs)
+    def _run() -> bool:
+        try:
+            asyncio.run(_render_all())
+            return True
+        except Exception:  # noqa: BLE001
+            return False   # 세션 자체를 못 띄운 경우
+
+    # 한 장도 못 만들었으면 브라우저가 없는 상황일 수 있다. figure_bytes 와
+    # 같은 이유로 한 번만 받아 보고 재시도한다 (실패해도 전부 None 이라
+    # 호출부의 기존 실패 처리가 그대로 먹는다).
+    if not _run() or all(blob is None for blob in out):
+        if _bootstrap_chrome():
+            _run()
     return out
 
 
