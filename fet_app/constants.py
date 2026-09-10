@@ -96,7 +96,7 @@ AXIS_TITLE_PAD = 9.0
 # (화면에서는 fit 구간을 보여주되, 논문에 넣을 그림에는 배경색을 남기지 않는다).
 FIT_BAND_SHAPE_NAME = "fit_band"
 
-# 커브 비교 뷰에서 소자마다 돌려 쓰는 색 (Okabe-Ito 색약 친화 팔레트).
+# Transfer 비교 뷰에서 소자마다 돌려 쓰는 색 (Okabe-Ito 색약 친화 팔레트).
 # 흰 배경에서 가장 안 읽히는 노랑을 맨 뒤로 뺐고, 소자가 더 많으면 순환한다.
 COMPARE_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7",
                    "#E69F00", "#56B4E9", "#000000", "#F0E442"]
@@ -195,7 +195,7 @@ DEFAULTS = {
         "lightness_max": 0.82,
         "manual_colors": {},   # {v_g(str): "#RRGGBB"} — 비어 있으면 그라데이션 사용
     },
-    # 커브 비교 뷰 — 여러 소자의 transfer 를 한 그래프에 겹쳐 그린다.
+    # Transfer 비교 뷰 — 여러 소자의 transfer 를 한 그래프에 겹쳐 그린다.
     # colors 는 {소자명: "#RRGGBB"} 로, 비어 있으면 COMPARE_PALETTE 를 순서대로
     # 돌려 쓴다. 선택 자체(어떤 소자를 겹칠지)는 서식이 아니라 그때그때의 작업
     # 상태라 AppState.compare_selected 에 둔다.

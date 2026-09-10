@@ -1,4 +1,4 @@
-"""커브 비교 — 그래프(figure_compare.py)와 선택/색 배정(ui/compare.py).
+"""Transfer 비교 — 그래프(figure_compare.py)와 선택/색 배정(ui/compare.py).
 
 ui.compare.render() 자체는 st 위젯 상호작용이라, 다른 UI 테스트(test_export_ui)
 와 같은 관례로 판단 로직을 순수 함수로 뽑아 검증한다.
@@ -215,6 +215,23 @@ def test_selected_items_drops_devices_that_disappeared():
     app = _app()
     app.compare_selected = ["1-1", "사라진소자"]
     assert [n for n, _c, _color in compare.selected_items(app)] == ["1-1"]
+
+
+def test_thumbnail_fits_the_narrowest_card_so_the_aspect_ratio_survives():
+    """Plotly 차트는 칸보다 넓으면 폭만 줄고 높이는 그대로라 종횡비가 깨진다
+    (viewport.py 에 같은 현상이 적혀 있다). 가장 좁을 때의 카드 폭보다
+    썸네일이 작아야 한다."""
+    from fet_app.figure_common import DPI
+
+    narrowest_body = 1000 - 51          # CSS 1000px - 좌우 패딩 1.6rem
+    card = (narrowest_body - 16 * (compare.PREVIEW_COLS - 1)) / compare.PREVIEW_COLS
+    assert compare.THUMB_W_IN * DPI <= card
+    # 본 그래프도 같은 이유로 가운데 칸보다 좁아야 한다 (기본 배율 0.65).
+    from fet_app.constants import DEFAULTS
+    from fet_app.ui.viewport import FALLBACK_SCALE
+
+    mid = narrowest_body * compare.MAIN_COLS[1] / sum(compare.MAIN_COLS)
+    assert DEFAULTS["transfer_geom"]["page_w_in"] * DPI * FALLBACK_SCALE <= mid
 
 
 def test_thumbnail_settings_do_not_touch_the_real_settings():

@@ -1,4 +1,4 @@
-"""커브 비교 뷰 — transfer 미리보기에서 여러 소자를 골라 한 그래프에 겹친다.
+"""Transfer 비교 뷰 — 미리보기에서 여러 소자를 골라 한 그래프에 겹친다.
 
 전체 요약 표(summary.render_summary_table)와 같은 자리에 서는 '다른 창'이다:
 좌/우 패널을 접고 화면 전체를 쓰며, [← 소자 보기로] 로 돌아간다.
@@ -24,14 +24,25 @@ from fet_app.ui.export_ui import _FMT_KEY, _MIME, FORMATS, _cached_image_bytes
 from fet_app.ui.summary import _has_transfer_data, cache_key, curve_fingerprint
 from fet_app.ui.viewport import preview_scale
 
-# 미리보기 카드 한 줄에 몇 개를 놓을지. 4열이면 1440px 기준 카드 폭이 약 330px 로,
-# 3.2 inch 썸네일(307px)이 잘리지 않고 들어간다.
+# 미리보기 카드 한 줄에 몇 개를 놓을지.
 PREVIEW_COLS = 4
 # 썸네일 전용 배경 크기(inch)와 글자 크기(px). 본 그래프를 k 로 줄이면 폰트까지
 # 같이 줄어 눈금이 뭉개지므로, 썸네일은 자기 크기·자기 폰트로 따로 그린다.
-THUMB_W_IN, THUMB_H_IN = 3.2, 2.6
-THUMB_TICK_PX = 11
+#
+# 크기는 **가장 좁을 때 카드에 들어가는 폭**으로 잡아야 한다. Plotly 차트가
+# 컨테이너보다 넓으면 폭만 컨테이너에 맞춰 찌그러지고 높이는 그대로 남아
+# 종횡비가 깨진다 (viewport.py 에 같은 현상이 기록돼 있다).
+#   theme.apply_ui_zoom 은 zoom = clamp(창폭/1440, 0.85, 1.0) 이므로 CSS 폭은
+#   창이 좁아도 창폭/0.85 까지만 줄어든다 — 1000px 창이면 약 1176 CSS px,
+#   좁게 잡아 1000 CSS px 로 봐도 본문은 좌우 패딩 1.6rem(약 51px)을 빼고 949px,
+#   4열은 열 간격 1rem x 3(48px)을 더 빼서 카드가 약 225px 다.
+# 그래서 썸네일 폭을 2.2 inch(211px)로 두면 그 폭에서도 눌리지 않는다.
+THUMB_W_IN, THUMB_H_IN = 2.2, 1.8
+THUMB_TICK_PX = 10
 UNSELECTED_COLOR = "#9E9E9E"
+# 겹친 본 그래프를 놓는 3열 비율. 가운데 칸이 그래프(기본 배율에서 약 500px)보다
+# 좁아지면 같은 이유로 종횡비가 깨지므로, 요약 뷰([1,2,1])보다 넓게 잡는다.
+MAIN_COLS = [1, 3, 1]
 
 
 def compare_devices(app) -> list:
@@ -160,17 +171,24 @@ def _render_previews(app, devices) -> None:
                     compare_figure([(g.name, g.transfer, color)], thumb, 1.0),
                     use_container_width=False, key=f"cmp_thumb_{g.name}")
                 if on:
-                    color_picker.color_picker(
-                        "색", app.settings["compare"]["colors"], g.name,
-                        key=f"cmp_color_{g.name}", default=color)
-                    # 레전드 이름. 비워 두면 소자 이름을 그대로 쓴다 —
-                    # placeholder 로 그 기본값을 보여준다.
-                    labels = app.settings["compare"].setdefault("labels", {})
-                    labels[g.name] = st.text_input(
-                        "레전드 이름", value=labels.get(g.name, ""),
-                        placeholder=g.name, key=f"cmp_label_{g.name}",
-                        help="비워 두면 소자 이름. 마크업 가능: "
-                             "_{아래첨자} ^{윗첨자} **굵게** *기울임*")
+                    # 색 스와치와 레전드 이름을 한 줄에 붙인다. 카드가 이미
+                    # st.columns 안이라 여기가 중첩 한 단계째다 (Streamlit 이
+                    # 허용하는 마지막 단계 — color_picker 는 스스로 컬럼을
+                    # 더 만들지 않으므로 여기서 끝난다).
+                    swatch, name_col = st.columns([1, 3], vertical_alignment="bottom")
+                    with swatch:
+                        color_picker.color_picker(
+                            "색", app.settings["compare"]["colors"], g.name,
+                            key=f"cmp_color_{g.name}", default=color)
+                    with name_col:
+                        # 비워 두면 소자 이름을 그대로 쓴다 — placeholder 로
+                        # 그 기본값을 보여준다.
+                        labels = app.settings["compare"].setdefault("labels", {})
+                        labels[g.name] = st.text_input(
+                            "레전드 이름", value=labels.get(g.name, ""),
+                            placeholder=g.name, key=f"cmp_label_{g.name}",
+                            help="비워 두면 소자 이름. 마크업 가능: "
+                                 "_{아래첨자} ^{윗첨자} **굵게** *기울임*")
     sync_selection(app, names, checked)
 
 
@@ -183,20 +201,20 @@ def _render_downloads(app) -> None:
     key, render = compare_image_plan(app, fmt, scale)
     st.download_button("비교 그래프 다운로드",
                        data=lambda: _cached_image_bytes(render, key),
-                       file_name=f"fet_compare.{fmt}",
+                       file_name=f"fet_transfer_compare.{fmt}",
                        mime=_MIME.get(fmt, "application/octet-stream"),
                        use_container_width=True, key="cmp_dl")
 
 
 def render(app) -> None:
-    st.markdown("### 커브 비교")
+    st.markdown("### Transfer 비교")
     if st.button("← 소자 보기로", key="cmp_back"):
         app.show_compare = False
         st.rerun()
 
     devices = compare_devices(app)
     if not devices:
-        st.info("transfer 커브가 있는 소자가 없습니다.")
+        st.info("Transfer 커브가 있는 소자가 없습니다.")
         return
 
     _render_controls(app, [g.name for g in devices])
@@ -208,7 +226,7 @@ def render(app) -> None:
         st.info("위에서 소자를 골라 주세요. 고른 순서대로 색이 배정됩니다.")
         return
 
-    left, mid, right = st.columns([1, 2, 1], gap="medium")
+    left, mid, right = st.columns(MAIN_COLS, gap="medium")
     with mid:
         st.plotly_chart(compare_figure(items, _compare_settings(app), preview_scale(app)),
                         use_container_width=False, key="cmp_main")
