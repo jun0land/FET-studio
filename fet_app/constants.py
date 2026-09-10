@@ -96,6 +96,11 @@ AXIS_TITLE_PAD = 9.0
 # (화면에서는 fit 구간을 보여주되, 논문에 넣을 그림에는 배경색을 남기지 않는다).
 FIT_BAND_SHAPE_NAME = "fit_band"
 
+# 커브 비교 뷰에서 소자마다 돌려 쓰는 색 (Okabe-Ito 색약 친화 팔레트).
+# 흰 배경에서 가장 안 읽히는 노랑을 맨 뒤로 뺐고, 소자가 더 많으면 순환한다.
+COMPARE_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7",
+                   "#E69F00", "#56B4E9", "#000000", "#F0E442"]
+
 # ---------------- 스윕 방향 화살표 (Transfer) ----------------
 # 전부 '플롯 영역의 짧은 변' 대비 비율. k 배율은 픽셀 크기와 함께 상쇄된다.
 SWEEP_ARROW_SKIP = 0.03     # 반환점에서 이만큼 안쪽에서 화살표를 시작한다
@@ -189,6 +194,19 @@ DEFAULTS = {
         "lightness_min": 0.18,
         "lightness_max": 0.82,
         "manual_colors": {},   # {v_g(str): "#RRGGBB"} — 비어 있으면 그라데이션 사용
+    },
+    # 커브 비교 뷰 — 여러 소자의 transfer 를 한 그래프에 겹쳐 그린다.
+    # colors 는 {소자명: "#RRGGBB"} 로, 비어 있으면 COMPARE_PALETTE 를 순서대로
+    # 돌려 쓴다. 선택 자체(어떤 소자를 겹칠지)는 서식이 아니라 그때그때의 작업
+    # 상태라 AppState.compare_selected 에 둔다.
+    "compare": {
+        "mode": "log",           # log = log|I_D| / sqrt = √|I_D|
+        "show_reverse": False,   # 여러 커브를 겹치므로 기본은 forward 만
+        "colors": {},
+        "legend": True,
+        # transfer 커브는 좌상 -> 우하로 흐르므로 두 모서리(좌하/우상)가 빈다.
+        # Output 레전드(insets["legend"], 우하 기본)와 자리를 따로 갖는 이유다.
+        "legend_pos": "bottom-left",
     },
     # 순간미분(포인트별 미분) 그래프. Transfer/Output 본 그래프 아래에 따로 그린다.
     # smooth 는 미분 '전' 원자료에 거는 이동평균 창(점 개수, 홀수)이다 — 포인트별

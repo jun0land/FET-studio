@@ -7,7 +7,7 @@ import streamlit as st
 from fet_app import state as state_mod
 from fet_app import theme
 from fet_app.manual import load_doc
-from fet_app.ui import device_list, panel_edit, summary
+from fet_app.ui import compare, device_list, panel_edit, summary
 from fet_app.ui.viewport import preview_scale
 
 # theme.RESPONSIVE_CSS 가 :has() 로 찾는 마커. 3열 컨테이너의 첫 컬럼에 심는다.
@@ -92,6 +92,10 @@ def render_app() -> None:
 
     if app.show_summary:
         summary.render_summary_table(app)
+        return
+
+    if app.show_compare:
+        compare.render(app)
         return
 
     k = preview_scale(app)

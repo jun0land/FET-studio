@@ -70,3 +70,6 @@ def render(app) -> None:
     if st.button("☰ 전체 요약", use_container_width=True):
         app.show_summary = True
         st.rerun()
+    if st.button("⧉ 커브 비교", use_container_width=True):
+        app.show_compare = True
+        st.rerun()

@@ -11,7 +11,8 @@ from fet_app.params import DeviceParams
 
 SETTINGS_KEYS = ("transfer_geom", "output_geom", "style",
                  "transfer_axes", "output_axes",
-                 "transfer_style", "output_style", "derivative", "insets")
+                 "transfer_style", "output_style", "derivative", "compare",
+                 "insets")
 
 
 def default_settings() -> dict:
@@ -29,6 +30,10 @@ class AppState:
     preview_scale: float | None = None   # None = 자동, 값 = 수동 배율
     search: str = ""
     show_summary: bool = False
+    show_compare: bool = False
+    # 커브 비교 뷰에서 겹쳐 그릴 소자 이름들. 고른 순서를 그대로 유지한다
+    # (색이 그 순서로 배정되므로 set 을 쓰면 매번 색이 바뀐다).
+    compare_selected: list = field(default_factory=list)
 
     def device(self, name: str | None) -> DeviceGroup | None:
         return next((g for g in self.devices if g.name == name), None)
