@@ -74,14 +74,20 @@ def _thumb_settings(app) -> dict:
     return base
 
 
+def device_label(app, name: str) -> str:
+    """레전드에 쓸 이름. 지정이 없거나 비어 있으면 소자 이름을 그대로 쓴다."""
+    labels = app.settings["compare"].get("labels") or {}
+    return str(labels.get(name, "")).strip() or name
+
+
 def selected_items(app) -> list[tuple[str, object, str]]:
-    """[(소자명, TransferCurve, 색)] — 고른 순서 그대로."""
+    """[(레전드 이름, TransferCurve, 색)] — 고른 순서 그대로."""
     colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
     out = []
     for name in app.compare_selected:
         g = app.device(name)
         if g is not None and _has_transfer_data(g.transfer):
-            out.append((name, g.transfer, colors[name]))
+            out.append((device_label(app, name), g.transfer, colors[name]))
     return out
 
 
@@ -157,6 +163,14 @@ def _render_previews(app, devices) -> None:
                     color_picker.color_picker(
                         "색", app.settings["compare"]["colors"], g.name,
                         key=f"cmp_color_{g.name}", default=color)
+                    # 레전드 이름. 비워 두면 소자 이름을 그대로 쓴다 —
+                    # placeholder 로 그 기본값을 보여준다.
+                    labels = app.settings["compare"].setdefault("labels", {})
+                    labels[g.name] = st.text_input(
+                        "레전드 이름", value=labels.get(g.name, ""),
+                        placeholder=g.name, key=f"cmp_label_{g.name}",
+                        help="비워 두면 소자 이름. 마크업 가능: "
+                             "_{아래첨자} ^{윗첨자} **굵게** *기울임*")
     sync_selection(app, names, checked)
 
 

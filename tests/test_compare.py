@@ -182,6 +182,35 @@ def test_selected_items_are_in_pick_order_with_stable_colors():
     assert [color for _n, _c, color in items] == [palette_color(0), palette_color(1)]
 
 
+def test_legend_name_defaults_to_the_device_name():
+    app = _app()
+    assert compare.device_label(app, "1-1") == "1-1"
+    app.settings["compare"]["labels"]["1-1"] = "   "     # 공백만 넣은 것도 '미지정'
+    assert compare.device_label(app, "1-1") == "1-1"
+
+
+def test_custom_legend_name_reaches_the_figure_with_markup():
+    """개별 그래프의 '샘플명' 인셋은 전역 문구 하나라 소자마다 다를 수 없다 —
+    겹쳐 그릴 때 쓸 이름은 비교 뷰가 소자별로 따로 갖는다."""
+    app = _app()
+    app.settings["compare"]["labels"]["1-2"] = "PMMA 20 nm (V_{th} 보정)"
+    compare.sync_selection(app, ["1-1", "1-2"], {"1-1", "1-2"})
+    items = compare.selected_items(app)
+    assert [name for name, _c, _color in items] == ["1-1", "PMMA 20 nm (V_{th} 보정)"]
+
+    fig = compare_figure(items, _settings())
+    assert [a.text for a in fig.layout.annotations] ==         ["1-1", "PMMA 20 nm (V<sub>th</sub> 보정)"]
+
+
+def test_image_plan_key_changes_when_a_legend_name_changes():
+    app = _app()
+    compare.sync_selection(app, ["1-1"], {"1-1"})
+    before, _r = compare.compare_image_plan(app, "png", 1)
+    app.settings["compare"]["labels"]["1-1"] = "소자 A"
+    after, _r = compare.compare_image_plan(app, "png", 1)
+    assert before != after
+
+
 def test_selected_items_drops_devices_that_disappeared():
     app = _app()
     app.compare_selected = ["1-1", "사라진소자"]
