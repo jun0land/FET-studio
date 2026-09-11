@@ -56,10 +56,15 @@ PREVIEW_COLS = 4
 THUMB_W_IN, THUMB_H_IN = 2.2, 1.8
 THUMB_TICK_PX = 10
 UNSELECTED_COLOR = "#9E9E9E"
-# 편집 화면의 2열 비율: 왼쪽 커브 카드들 / 오른쪽 그래프·지표. 오른쪽 칸이
-# 그래프(기본 배율에서 약 500px)보다 좁아지면 같은 이유로 종횡비가 깨지므로
-# 오른쪽을 넉넉히 준다 (1000 CSS px 기준 오른쪽 약 610px).
-EDIT_COLS = [1, 2]
+# 편집 화면 배치. 그래프는 하나로 겹쳐져 폭이 고정(기본 배율에서 약 500px)이라,
+# 화면을 [커브 카드 | 그래프 | 옆 패널] 로 나누고 그래프 오른쪽 여백에 표시
+# 옵션·다운로드를 세운다. 지표 표는 그래프+옆 패널 폭을 쓴다.
+#   EDIT_COLS  : 왼쪽 커브 카드 열 / 오른쪽(그래프+옆 패널+표) 열
+#   GRAPH_COLS : 오른쪽 열 안에서 그래프 / 옆 패널 (중첩 한 단계)
+# 가장 좁을 때(1000 CSS px, 본문 949px) 오른쪽 열은 (949-16)*3/4 = 700px 이고
+# 그래프 칸은 (700-16)*3/4 = 513px 로 그래프(499px)보다 넓어야 종횡비가 산다.
+EDIT_COLS = [1, 3]
+GRAPH_COLS = [3, 1]
 # 편집 화면에서 같이 보여주는 지표 표의 열 (summary_row 의 열 이름 그대로).
 METRIC_COLUMNS = ["V_th (V)", "mu_sat (cm2/Vs)", "I_on/I_off", "SS (mV/dec)",
                   "dV_th (V)", "Fit R2", "Fit range (V)", "Fit points"]
@@ -173,22 +178,23 @@ def compare_image_plan(app, fmt: str, scale: int):
 
 def _render_select(app, devices) -> None:
     names = [g.name for g in devices]
-    c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1.4], vertical_alignment="bottom")
+    # 버튼 셋은 내용 폭으로 왼쪽에 모으고, 안내 문구가 남는 폭을 갖는다.
+    c1, c2, c3, c4 = st.columns([1, 1, 1.4, 4], vertical_alignment="center")
     with c1:
-        st.caption(f"{len(app.compare_selected)}개 선택 · 고른 순서대로 색이 배정됩니다")
-    with c2:
-        if st.button("전체 선택", use_container_width=True, key="cmp_all"):
+        if st.button("전체 선택", key="cmp_all"):
             app.compare_selected = list(names)
             st.rerun()
-    with c3:
-        if st.button("선택 해제", use_container_width=True, key="cmp_none"):
+    with c2:
+        if st.button("선택 해제", key="cmp_none"):
             app.compare_selected = []
             st.rerun()
-    with c4:
-        if st.button("멀티 커브 편집 →", use_container_width=True, type="primary",
-                     key="cmp_go_edit", disabled=not app.compare_selected):
+    with c3:
+        if st.button("멀티 커브 편집 →", type="primary", key="cmp_go_edit",
+                     disabled=not app.compare_selected):
             app.compare_stage = "edit"
             st.rerun()
+    with c4:
+        st.caption(f"{len(app.compare_selected)}개 선택 · 고른 순서대로 색이 배정됩니다")
 
     thumb = _thumb_settings(app)
     colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
@@ -227,16 +233,13 @@ def _render_edit_controls(app) -> None:
         index=positions.index(current) if current in positions else 0,
         format_func=lambda p: LEGEND_POS_LABELS[p], key="cmp_legend_pos",
         disabled=not cfg.get("legend", True))
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        cfg["legend"] = st.checkbox("레전드", value=bool(cfg.get("legend", True)),
-                                    key="cmp_legend")
-    with c2:
-        cfg["show_reverse"] = st.checkbox("reverse", value=bool(cfg.get("show_reverse", False)),
-                                          key="cmp_rev")
-    with c3:
-        cfg["show_fit"] = st.checkbox("fit 직선", value=bool(cfg.get("show_fit", True)),
-                                      key="cmp_fit")
+    # 옆 패널은 좁다(가장 좁을 때 약 170px) — 체크박스를 세로로 쌓는다.
+    cfg["legend"] = st.checkbox("레전드", value=bool(cfg.get("legend", True)),
+                                key="cmp_legend")
+    cfg["show_reverse"] = st.checkbox("reverse", value=bool(cfg.get("show_reverse", False)),
+                                      key="cmp_rev")
+    cfg["show_fit"] = st.checkbox("fit 직선", value=bool(cfg.get("show_fit", True)),
+                                  key="cmp_fit")
     if cfg["show_fit"] and cfg["mode"] == "log":
         st.caption("fit 직선·V_th 마커는 √|I_D| 축이 있는 모드에서 그려집니다 "
                    "(fit 은 √|I_D| 위의 직선이라서요).")
@@ -302,11 +305,8 @@ def _formatted_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _render_downloads(app) -> None:
-    c1, c2 = st.columns(2)
-    with c1:
-        fmt = _FMT_KEY[st.selectbox("이미지 형식", FORMATS, key="cmp_fmt")]
-    with c2:
-        scale = st.selectbox("배율", [1, 2, 4], index=0, key="cmp_scale")
+    fmt = _FMT_KEY[st.selectbox("이미지 형식", FORMATS, key="cmp_fmt")]
+    scale = st.selectbox("배율", [1, 2, 4], index=0, key="cmp_scale")
     key, render = compare_image_plan(app, fmt, scale)
     st.download_button("비교 그래프 다운로드",
                        data=lambda: _cached_image_bytes(render, key),
@@ -324,23 +324,30 @@ def _render_edit(app) -> None:
 
     left, right = st.columns(EDIT_COLS, gap="medium")
     with left:
-        _render_edit_controls(app)
         st.markdown("**커브**")
         for g in groups:
             _render_curve_card(app, g, colors[g.name])
     with right:
-        st.plotly_chart(
-            compare_figure(selected_items(app, with_fit=True), _compare_settings(app),
-                           preview_scale(app)),
-            use_container_width=False, key="cmp_main")
-        _render_downloads(app)
+        # 그래프 | 옆 패널 — 오른쪽 열 안의 중첩 한 단계. 옆 패널(표시 옵션·
+        # 다운로드)은 컬럼을 더 만들지 않는다(체크박스·선택 상자 세로 배치).
+        graph_col, side = st.columns(GRAPH_COLS, gap="medium")
+        with graph_col:
+            st.plotly_chart(
+                compare_figure(selected_items(app, with_fit=True), _compare_settings(app),
+                               preview_scale(app)),
+                use_container_width=False, key="cmp_main")
+        with side:
+            st.markdown("**표시**")
+            _render_edit_controls(app)
+            st.markdown("**다운로드**")
+            _render_downloads(app)
 
         st.markdown("**성능 지표**")
         df = metrics_table(app, groups)
         st.table(_formatted_metrics(df).drop(columns=["Device"]))
         st.download_button("지표 CSV", data=lambda: export.summary_csv_bytes(df),
                            file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
-                           use_container_width=True, key="cmp_metrics_csv")
+                           key="cmp_metrics_csv")
 
 
 # ---------------- 진입 ----------------
@@ -348,15 +355,15 @@ def _render_edit(app) -> None:
 def render(app) -> None:
     editing = app.compare_stage == "edit"
     st.markdown("### Transfer 비교 — " + ("멀티 커브 편집" if editing else "소자 선택"))
-    c1, c2, _ = st.columns([1, 1, 4])
+    # 이동 버튼은 내용 폭으로 왼쪽에 모은다 — 화면 폭에 맞춰 늘리면 배너처럼 길어진다.
+    c1, c2, _ = st.columns([1, 1, 6])
     with c1:
-        if st.button("← 소자 보기로", key="cmp_back", use_container_width=True):
+        if st.button("← 소자 보기로", key="cmp_back"):
             app.show_compare = False
             app.compare_stage = "select"
             st.rerun()
     with c2:
-        if editing and st.button("← 소자 선택", key="cmp_back_select",
-                                 use_container_width=True):
+        if editing and st.button("← 소자 선택", key="cmp_back_select"):
             app.compare_stage = "select"
             st.rerun()
 

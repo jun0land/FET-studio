@@ -306,7 +306,8 @@ def test_thumbnail_fits_the_narrowest_card_so_the_aspect_ratio_survives():
     from fet_app.ui.viewport import FALLBACK_SCALE
 
     right = (narrowest_body - 16) * compare.EDIT_COLS[1] / sum(compare.EDIT_COLS)
-    assert DEFAULTS["transfer_geom"]["page_w_in"] * DPI * FALLBACK_SCALE <= right
+    graph_col = (right - 16) * compare.GRAPH_COLS[0] / sum(compare.GRAPH_COLS)
+    assert DEFAULTS["transfer_geom"]["page_w_in"] * DPI * FALLBACK_SCALE <= graph_col
 
 
 def test_thumbnail_settings_do_not_touch_the_real_settings():
