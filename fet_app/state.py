@@ -31,6 +31,10 @@ class AppState:
     search: str = ""
     show_summary: bool = False
     show_compare: bool = False
+    # Transfer 비교는 두 단계다: "select"(미리보기에서 소자 고르기) ->
+    # "edit"(멀티 커브 편집 — 색·이름·fit 구간·지표). 편집 화면에서 돌아오면
+    # 선택은 그대로 남는다.
+    compare_stage: str = "select"
     # Transfer 비교 뷰에서 겹쳐 그릴 소자 이름들. 고른 순서를 그대로 유지한다
     # (색이 그 순서로 배정되므로 set 을 쓰면 매번 색이 바뀐다).
     compare_selected: list = field(default_factory=list)

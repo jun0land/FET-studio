@@ -1,27 +1,43 @@
-"""Transfer 비교 뷰 — 미리보기에서 여러 소자를 골라 한 그래프에 겹친다.
+"""Transfer 비교 — 두 단계.
 
-전체 요약 표(summary.render_summary_table)와 같은 자리에 서는 '다른 창'이다:
-좌/우 패널을 접고 화면 전체를 쓰며, [← 소자 보기로] 로 돌아간다.
+1. **소자 선택**: transfer 미리보기 격자에서 겹칠 소자를 고른다. 여기서는 고르기만
+   한다 — 색·이름 같은 편집은 다음 화면 몫이다.
+2. **멀티 커브 편집**: 고른 커브를 한 그래프에 겹치고, 커브마다 색·레전드 이름·
+   fit 구간을 만지며, 그 fit 에서 나온 성능 지표(V_th, μ_sat, I_on/I_off, SS,
+   ΔV_th, R²)를 표로 함께 본다. √|I_D| 모드에서는 소자별 fit 직선과 V_th 마커가
+   그래프 위에 같은 색으로 얹힌다.
+
+둘 다 전체 요약 표(summary.render_summary_table)처럼 화면 전체를 쓰는 '다른 창'
+이고, [← 소자 보기로] 로 돌아간다.
 
 선택은 서식이 아니라 그때그때의 작업 상태라 AppState.compare_selected 에 두고,
-색·표시 옵션만 settings["compare"] 에 둔다. 색은 **고른 순서**대로 팔레트에서
+색·이름·표시 옵션만 settings["compare"] 에 둔다. 색은 **고른 순서**대로 팔레트에서
 배정한다 — 소자 목록 순서로 배정하면 선택을 바꿀 때마다 남아 있는 커브의 색까지
 따라 바뀌어서, 같은 그림을 다시 만들기가 어려워진다.
+
+fit 구간은 정보 탭(panel_fit)과 **같은 세션 값**을 쓴다. 어느 화면에서 바꿔도
+같은 fit 이고, 지표도 summary.compute 의 캐시를 그대로 탄다.
 """
 
 from __future__ import annotations
 
 import copy
 
+import pandas as pd
 import streamlit as st
 
 from fet_app import export
 from fet_app.figure_compare import (
     LEGEND_POS_LABELS, MODE_LABELS, assign_colors, compare_figure,
 )
-from fet_app.ui import color_picker
+from fet_app.metrics import transfer_metrics
+from fet_app.ui import color_picker, panel_fit
 from fet_app.ui.export_ui import _FMT_KEY, _MIME, FORMATS, _cached_image_bytes
-from fet_app.ui.summary import _has_transfer_data, cache_key, curve_fingerprint
+from fet_app.ui.panel_fit import fit_range_for
+from fet_app.ui.summary import (
+    _has_transfer_data, cache_key, compute, curve_fingerprint, effective_group,
+    format_metric,
+)
 from fet_app.ui.viewport import preview_scale
 
 # 미리보기 카드 한 줄에 몇 개를 놓을지.
@@ -40,9 +56,13 @@ PREVIEW_COLS = 4
 THUMB_W_IN, THUMB_H_IN = 2.2, 1.8
 THUMB_TICK_PX = 10
 UNSELECTED_COLOR = "#9E9E9E"
-# 겹친 본 그래프를 놓는 3열 비율. 가운데 칸이 그래프(기본 배율에서 약 500px)보다
-# 좁아지면 같은 이유로 종횡비가 깨지므로, 요약 뷰([1,2,1])보다 넓게 잡는다.
-MAIN_COLS = [1, 3, 1]
+# 편집 화면의 2열 비율: 왼쪽 커브 카드들 / 오른쪽 그래프·지표. 오른쪽 칸이
+# 그래프(기본 배율에서 약 500px)보다 좁아지면 같은 이유로 종횡비가 깨지므로
+# 오른쪽을 넉넉히 준다 (1000 CSS px 기준 오른쪽 약 610px).
+EDIT_COLS = [1, 2]
+# 편집 화면에서 같이 보여주는 지표 표의 열 (summary_row 의 열 이름 그대로).
+METRIC_COLUMNS = ["V_th (V)", "mu_sat (cm2/Vs)", "I_on/I_off", "SS (mV/dec)",
+                  "dV_th (V)", "Fit R2", "Fit range (V)", "Fit points"]
 
 
 def compare_devices(app) -> list:
@@ -70,7 +90,7 @@ def _compare_settings(app) -> dict:
 
 
 def _thumb_settings(app) -> dict:
-    """썸네일용 settings 사본 — 작은 배경, 축 제목 없음, 레전드 없음."""
+    """썸네일용 settings 사본 — 작은 배경, 축 제목·레전드·fit 없음."""
     base = copy.deepcopy(_compare_settings(app))
     base["geom"].update(page_w_in=THUMB_W_IN, page_h_in=THUMB_H_IN,
                         graph_left_pct=20.0, graph_top_pct=6.0,
@@ -80,6 +100,7 @@ def _thumb_settings(app) -> dict:
     for axis in ("x", "y", "y2"):
         base["axes"][axis]["title"] = ""
     base["compare"]["legend"] = False
+    base["compare"]["show_fit"] = False
     base["insets"] = copy.deepcopy(base["insets"])
     base["insets"]["sample"]["text"] = ""
     return base
@@ -91,72 +112,85 @@ def device_label(app, name: str) -> str:
     return str(labels.get(name, "")).strip() or name
 
 
-def selected_items(app) -> list[tuple[str, object, str]]:
-    """[(레전드 이름, TransferCurve, 색)] — 고른 순서 그대로."""
-    colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
+def selected_groups(app) -> list:
+    """고른 순서대로의 DeviceGroup 목록. 사라졌거나 비어 있는 소자는 뺀다."""
     out = []
     for name in app.compare_selected:
         g = app.device(name)
         if g is not None and _has_transfer_data(g.transfer):
-            out.append((device_label(app, name), g.transfer, colors[name]))
+            out.append(g)
+    return out
+
+
+def selected_items(app, with_fit: bool = False) -> list[tuple]:
+    """[(레전드 이름, TransferCurve, 색[, FitResult])] — 고른 순서 그대로.
+
+    ``with_fit`` 이면 소자마다 지표를 계산해(캐시) fit 을 함께 넣는다 — 편집
+    화면의 그래프용. 썸네일·선택 화면은 fit 이 필요 없으니 계산하지 않는다.
+    """
+    colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
+    out = []
+    for g in selected_groups(app):
+        item = [device_label(app, g.name), g.transfer, colors[g.name]]
+        if with_fit:
+            tm, _od = compute(app, g)
+            item.append(getattr(tm, "fit", None))
+        out.append(tuple(item))
     return out
 
 
 def compare_image_plan(app, fmt: str, scale: int):
     """(캐시 키, 인자 없는 렌더 함수). export_ui.device_image_plan 과 같은 규칙 —
-    세션·앱 상태는 여기서 다 읽고, 반환된 함수는 순수 계산만 한다."""
-    items = selected_items(app)
+    세션·앱 상태는 여기서 다 읽고, 반환된 함수는 순수 계산만 한다. fit 은 그
+    함수 안에서 다시 계산한다(캐시된 지표 객체를 클로저에 넣어도 되지만,
+    파라미터·fit 구간까지 키에 넣어야 하는 건 마찬가지라 계산 재현이 더 단순하다).
+    """
     settings = copy.deepcopy(_compare_settings(app))
+    colors = assign_colors(app.compare_selected, settings["compare"].get("colors"))
+    plan = []
+    for g in selected_groups(app):
+        params = app.effective_params(g)
+        plan.append((device_label(app, g.name), g.transfer, colors[g.name],
+                     params, fit_range_for(app, g.name)))
     key = cache_key({
         "kind": "compare", "fmt": fmt, "scale": int(scale), "settings": settings,
-        "items": [(name, curve_fingerprint(curve), color)
-                  for name, curve, color in items],
+        "items": [(label, curve_fingerprint(curve), color,
+                   [p.w_um, p.l_um, p.eps_r, p.d_nm], list(fr) if fr else None)
+                  for label, curve, color, p, fr in plan],
     })
 
     def _render() -> bytes:
+        items = [(label, curve, color, transfer_metrics(curve, params, fr).fit)
+                 for label, curve, color, params, fr in plan]
         return export.figure_bytes(compare_figure(items, settings, 1.0), fmt, scale)
 
     return key, _render
 
 
-def _render_controls(app, names: list[str]) -> None:
-    cfg = app.settings["compare"]
-    c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1], vertical_alignment="bottom")
+# ---------------- 1단계: 소자 선택 ----------------
+
+def _render_select(app, devices) -> None:
+    names = [g.name for g in devices]
+    c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1.4], vertical_alignment="bottom")
     with c1:
-        modes = list(MODE_LABELS)
-        cfg["mode"] = st.selectbox("값", modes,
-                                   index=modes.index(cfg.get("mode", "log")),
-                                   format_func=lambda m: MODE_LABELS[m], key="cmp_mode")
+        st.caption(f"{len(app.compare_selected)}개 선택 · 고른 순서대로 색이 배정됩니다")
     with c2:
-        positions = list(LEGEND_POS_LABELS)
-        current = cfg.get("legend_pos", "bottom-left")
-        cfg["legend_pos"] = st.selectbox(
-            "레전드 위치", positions,
-            index=positions.index(current) if current in positions else 0,
-            format_func=lambda p: LEGEND_POS_LABELS[p], key="cmp_legend_pos",
-            disabled=not cfg.get("legend", True))
-        cfg["show_reverse"] = st.checkbox("reverse 표시",
-                                          value=bool(cfg.get("show_reverse", False)),
-                                          key="cmp_rev")
-        cfg["legend"] = st.checkbox("레전드", value=bool(cfg.get("legend", True)),
-                                    key="cmp_legend")
-    with c3:
         if st.button("전체 선택", use_container_width=True, key="cmp_all"):
             app.compare_selected = list(names)
             st.rerun()
-    with c4:
+    with c3:
         if st.button("선택 해제", use_container_width=True, key="cmp_none"):
             app.compare_selected = []
             st.rerun()
+    with c4:
+        if st.button("멀티 커브 편집 →", use_container_width=True, type="primary",
+                     key="cmp_go_edit", disabled=not app.compare_selected):
+            app.compare_stage = "edit"
+            st.rerun()
 
-
-def _render_previews(app, devices) -> None:
-    """소자마다 [체크박스 + 썸네일 + (선택 시) 색 스와치] 카드를 격자로 놓는다."""
     thumb = _thumb_settings(app)
     colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
-    names = [g.name for g in devices]
     checked = set()
-
     for row_start in range(0, len(devices), PREVIEW_COLS):
         row = devices[row_start:row_start + PREVIEW_COLS]
         cols = st.columns(PREVIEW_COLS)
@@ -166,30 +200,101 @@ def _render_previews(app, devices) -> None:
                                  key=f"cmp_sel_{g.name}")
                 if on:
                     checked.add(g.name)
+                # 고른 소자는 배정된 색으로, 아닌 것은 회색으로 — 썸네일 자체가
+                # '이 커브가 어떤 색으로 겹쳐질지' 를 미리 보여준다.
                 color = colors.get(g.name, UNSELECTED_COLOR) if on else UNSELECTED_COLOR
                 st.plotly_chart(
                     compare_figure([(g.name, g.transfer, color)], thumb, 1.0),
                     use_container_width=False, key=f"cmp_thumb_{g.name}")
-                if on:
-                    # 색 스와치와 레전드 이름을 한 줄에 붙인다. 카드가 이미
-                    # st.columns 안이라 여기가 중첩 한 단계째다 (Streamlit 이
-                    # 허용하는 마지막 단계 — color_picker 는 스스로 컬럼을
-                    # 더 만들지 않으므로 여기서 끝난다).
-                    swatch, name_col = st.columns([1, 3], vertical_alignment="bottom")
-                    with swatch:
-                        color_picker.color_picker(
-                            "색", app.settings["compare"]["colors"], g.name,
-                            key=f"cmp_color_{g.name}", default=color)
-                    with name_col:
-                        # 비워 두면 소자 이름을 그대로 쓴다 — placeholder 로
-                        # 그 기본값을 보여준다.
-                        labels = app.settings["compare"].setdefault("labels", {})
-                        labels[g.name] = st.text_input(
-                            "레전드 이름", value=labels.get(g.name, ""),
-                            placeholder=g.name, key=f"cmp_label_{g.name}",
-                            help="비워 두면 소자 이름. 마크업 가능: "
-                                 "_{아래첨자} ^{윗첨자} **굵게** *기울임*")
     sync_selection(app, names, checked)
+
+
+# ---------------- 2단계: 멀티 커브 편집 ----------------
+
+def _render_edit_controls(app) -> None:
+    cfg = app.settings["compare"]
+    modes = list(MODE_LABELS)
+    cfg["mode"] = st.selectbox("값", modes, index=modes.index(cfg.get("mode", "log")),
+                               format_func=lambda m: MODE_LABELS[m], key="cmp_mode")
+    positions = list(LEGEND_POS_LABELS)
+    current = cfg.get("legend_pos", "bottom-left")
+    cfg["legend_pos"] = st.selectbox(
+        "레전드 위치", positions,
+        index=positions.index(current) if current in positions else 0,
+        format_func=lambda p: LEGEND_POS_LABELS[p], key="cmp_legend_pos",
+        disabled=not cfg.get("legend", True))
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        cfg["legend"] = st.checkbox("레전드", value=bool(cfg.get("legend", True)),
+                                    key="cmp_legend")
+    with c2:
+        cfg["show_reverse"] = st.checkbox("reverse", value=bool(cfg.get("show_reverse", False)),
+                                          key="cmp_rev")
+    with c3:
+        cfg["show_fit"] = st.checkbox("fit 직선", value=bool(cfg.get("show_fit", True)),
+                                      key="cmp_fit")
+    if cfg["show_fit"] and cfg["mode"] != "sqrt":
+        st.caption("fit 직선·V_th 마커는 √|I_D| 모드에서 그려집니다 "
+                   "(fit 은 √|I_D| 위의 직선이라서요).")
+
+
+def _metric_line(tm) -> str:
+    """카드 안 한 줄 요약. 표는 오른쪽에 따로 있으니 핵심 셋만."""
+    if tm is None:
+        return "지표 없음"
+    return (f"V_th {format_metric(tm.v_th, 'volt')} · "
+            f"μ_sat {format_metric(tm.mu_sat, 'mobility')} · "
+            f"R² {format_metric(tm.fit.r2 if tm.fit else None, 'plain')}")
+
+
+def _render_curve_card(app, g, color: str) -> None:
+    """커브 하나의 편집 카드: [스와치][레전드 이름] / fit 구간 / 지표 한 줄.
+
+    카드는 이미 왼쪽 컬럼 안이라 여기서 여는 st.columns 가 중첩 한 단계째다
+    (Streamlit 이 허용하는 마지막 단계). color_picker 와 panel_fit.render_device
+    는 그 안에서 컬럼을 더 만들지 않도록 짜여 있다 — render_device 의 하한/상한
+    2열은 카드 바로 아래(형제)라 괜찮다.
+    """
+    with st.container(border=True):
+        swatch, name_col = st.columns([1, 3], vertical_alignment="bottom")
+        with swatch:
+            color_picker.color_picker("색", app.settings["compare"]["colors"], g.name,
+                                      key=f"cmp_color_{g.name}", default=color)
+        with name_col:
+            labels = app.settings["compare"].setdefault("labels", {})
+            labels[g.name] = st.text_input(
+                f"레전드 이름 — {g.name}", value=labels.get(g.name, ""),
+                placeholder=g.name, key=f"cmp_label_{g.name}",
+                help="비워 두면 소자 이름. 마크업 가능: "
+                     "_{아래첨자} ^{윗첨자} **굵게** *기울임*")
+        panel_fit.render_device(g, compact=True)
+        tm, _od = compute(app, g)
+        st.caption(_metric_line(tm))
+        for w in getattr(tm, "warnings", []) or []:
+            st.caption(f"⚠ {w}")
+
+
+def metrics_table(app, groups) -> pd.DataFrame:
+    """고른 소자들의 성능 지표 — 전체 요약 표와 같은 계산(export.summary_row)을
+    같은 열 이름으로 잘라 쓴다. 숫자는 가공하지 않는다(CSV 용)."""
+    rows = []
+    for g in groups:
+        tm, od = compute(app, g)
+        row = export.summary_row(effective_group(app, g), tm, od)
+        rows.append({"Device": g.name, "Label": device_label(app, g.name),
+                     **{c: row.get(c) for c in METRIC_COLUMNS}})
+    return pd.DataFrame(rows, columns=["Device", "Label", *METRIC_COLUMNS])
+
+
+def _formatted_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """화면용 — 지표 카드와 같은 자릿수로 문자열화한다."""
+    kinds = {"V_th (V)": "volt", "mu_sat (cm2/Vs)": "mobility", "I_on/I_off": "ratio",
+             "SS (mV/dec)": "ss", "dV_th (V)": "volt", "Fit R2": "plain"}
+    out = df.copy()
+    for col, kind in kinds.items():
+        out[col] = [format_metric(None if v is None or v != v else v, kind)
+                    for v in out[col]]
+    return out
 
 
 def _render_downloads(app) -> None:
@@ -206,28 +311,57 @@ def _render_downloads(app) -> None:
                        use_container_width=True, key="cmp_dl")
 
 
+def _render_edit(app) -> None:
+    groups = selected_groups(app)
+    if not groups:
+        st.info("고른 소자가 없습니다. [← 소자 선택] 에서 먼저 골라 주세요.")
+        return
+    colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
+
+    left, right = st.columns(EDIT_COLS, gap="medium")
+    with left:
+        _render_edit_controls(app)
+        st.markdown("**커브**")
+        for g in groups:
+            _render_curve_card(app, g, colors[g.name])
+    with right:
+        st.plotly_chart(
+            compare_figure(selected_items(app, with_fit=True), _compare_settings(app),
+                           preview_scale(app)),
+            use_container_width=False, key="cmp_main")
+        _render_downloads(app)
+
+        st.markdown("**성능 지표**")
+        df = metrics_table(app, groups)
+        st.table(_formatted_metrics(df).drop(columns=["Device"]))
+        st.download_button("지표 CSV", data=lambda: export.summary_csv_bytes(df),
+                           file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
+                           use_container_width=True, key="cmp_metrics_csv")
+
+
+# ---------------- 진입 ----------------
+
 def render(app) -> None:
-    st.markdown("### Transfer 비교")
-    if st.button("← 소자 보기로", key="cmp_back"):
-        app.show_compare = False
-        st.rerun()
+    editing = app.compare_stage == "edit"
+    st.markdown("### Transfer 비교 — " + ("멀티 커브 편집" if editing else "소자 선택"))
+    c1, c2, _ = st.columns([1, 1, 4])
+    with c1:
+        if st.button("← 소자 보기로", key="cmp_back", use_container_width=True):
+            app.show_compare = False
+            app.compare_stage = "select"
+            st.rerun()
+    with c2:
+        if editing and st.button("← 소자 선택", key="cmp_back_select",
+                                 use_container_width=True):
+            app.compare_stage = "select"
+            st.rerun()
 
     devices = compare_devices(app)
     if not devices:
         st.info("Transfer 커브가 있는 소자가 없습니다.")
         return
 
-    _render_controls(app, [g.name for g in devices])
-    _render_previews(app, devices)
-    st.divider()
-
-    items = selected_items(app)
-    if not items:
-        st.info("위에서 소자를 골라 주세요. 고른 순서대로 색이 배정됩니다.")
-        return
-
-    left, mid, right = st.columns(MAIN_COLS, gap="medium")
-    with mid:
-        st.plotly_chart(compare_figure(items, _compare_settings(app), preview_scale(app)),
-                        use_container_width=False, key="cmp_main")
-        _render_downloads(app)
+    if editing:
+        _render_edit(app)
+    else:
+        _render_select(app, devices)

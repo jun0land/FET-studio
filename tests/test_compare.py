@@ -18,8 +18,12 @@ from fet_app.figure_compare import (
     LEGEND_POSITIONS, assign_colors, compare_figure, palette_color,
 )
 from fet_app.grouping import DeviceGroup, MeasurementRun
+from fet_app.metrics import transfer_metrics
+from fet_app.params import DeviceParams
 from fet_app.state import AppState
 from fet_app.ui import compare
+
+PARAMS = DeviceParams(w_um=1000.0, l_um=50.0, eps_r=3.9, d_nm=300.0)
 
 
 def _curve(scale=1.0, dual=True):
@@ -53,6 +57,7 @@ def _settings(**cmp_over):
 
 def _app(names=("1-1", "1-2", "1-3")):
     app = AppState(devices=[_group(n) for n in names])
+    app.global_params = PARAMS
     return app
 
 
@@ -138,6 +143,37 @@ def test_legend_can_be_turned_off_and_moved():
     top = compare_figure(items, _settings(legend_pos="top-right"))
     assert bottom.layout.annotations[0].y < top.layout.annotations[0].y
     assert "bottom-left" in LEGEND_POSITIONS
+
+
+def _fit_traces(fig):
+    return [t.name for t in fig.data if t.name.endswith(" fit") or t.name.endswith(" V_th")]
+
+
+def test_fit_lines_and_vth_markers_are_drawn_in_sqrt_mode_in_the_curve_color():
+    """멀티 커브 편집: 소자마다 fit 직선(점선)과 V_th 절편 마커를 커브 색으로 얹는다.
+    Transfer 그래프의 고정 빨강은 여기서 쓸 수 없다 — 어느 fit 이 누구 것인지
+    색으로 짝지어야 한다."""
+    c = _curve(dual=False)
+    fit = transfer_metrics(c, PARAMS).fit
+    fig = compare_figure([("1-1", c, "#0072B2", fit)], _settings(mode="sqrt"))
+    assert _fit_traces(fig) == ["1-1 fit", "1-1 V_th"]
+    fit_trace = next(t for t in fig.data if t.name == "1-1 fit")
+    assert fit_trace.line.color == "#0072B2" and fit_trace.line.dash == "dot"
+    marker = next(t for t in fig.data if t.name == "1-1 V_th")
+    assert marker.marker.color == "#0072B2" and marker.y == (0.0,)
+    assert abs(marker.x[0] - (-fit.intercept / fit.slope)) < 1e-9
+
+
+def test_fit_overlay_only_in_sqrt_mode_and_only_when_enabled():
+    """fit 은 √|I_D| 위의 직선이라 log 축에는 그리지 않는다."""
+    c = _curve(dual=False)
+    fit = transfer_metrics(c, PARAMS).fit
+    assert not _fit_traces(compare_figure([("a", c, "#000", fit)], _settings(mode="log")))
+    assert not _fit_traces(compare_figure([("a", c, "#000", fit)],
+                                          _settings(mode="sqrt", show_fit=False)))
+    # fit 이 없는(3-튜플) 항목은 그대로 받는다 — 썸네일·선택 화면이 그렇게 부른다.
+    assert not _fit_traces(compare_figure([("a", c, "#000")], _settings(mode="sqrt")))
+    assert not _fit_traces(compare_figure([("a", c, "#000", None)], _settings(mode="sqrt")))
 
 
 def test_empty_selection_still_produces_axes():
@@ -226,12 +262,12 @@ def test_thumbnail_fits_the_narrowest_card_so_the_aspect_ratio_survives():
     narrowest_body = 1000 - 51          # CSS 1000px - 좌우 패딩 1.6rem
     card = (narrowest_body - 16 * (compare.PREVIEW_COLS - 1)) / compare.PREVIEW_COLS
     assert compare.THUMB_W_IN * DPI <= card
-    # 본 그래프도 같은 이유로 가운데 칸보다 좁아야 한다 (기본 배율 0.65).
+    # 편집 화면의 겹친 그래프도 같은 이유로 오른쪽 칸보다 좁아야 한다 (기본 배율 0.65).
     from fet_app.constants import DEFAULTS
     from fet_app.ui.viewport import FALLBACK_SCALE
 
-    mid = narrowest_body * compare.MAIN_COLS[1] / sum(compare.MAIN_COLS)
-    assert DEFAULTS["transfer_geom"]["page_w_in"] * DPI * FALLBACK_SCALE <= mid
+    right = (narrowest_body - 16) * compare.EDIT_COLS[1] / sum(compare.EDIT_COLS)
+    assert DEFAULTS["transfer_geom"]["page_w_in"] * DPI * FALLBACK_SCALE <= right
 
 
 def test_thumbnail_settings_do_not_touch_the_real_settings():
@@ -247,6 +283,58 @@ def test_thumbnail_settings_do_not_touch_the_real_settings():
 
 
 # ---------------- 내보내기 ----------------
+
+def test_selected_items_can_carry_each_devices_fit():
+    app = _app()
+    compare.sync_selection(app, ["1-1", "1-2"], {"1-1", "1-2"})
+    plain = compare.selected_items(app)
+    with_fit = compare.selected_items(app, with_fit=True)
+    assert all(len(item) == 3 for item in plain)
+    assert all(len(item) == 4 and item[3] is not None for item in with_fit)
+    assert with_fit[0][3].slope != 0
+
+
+def test_metrics_table_matches_the_summary_numbers_in_pick_order():
+    """편집 화면의 지표 표는 전체 요약 표와 같은 계산(summary_row)을 잘라 쓴다 —
+    두 화면의 숫자가 다르면 안 된다."""
+    from fet_app.export import summary_row
+    from fet_app.ui.summary import compute, effective_group
+
+    app = _app()
+    app.settings["compare"]["labels"]["1-3"] = "세 번째"
+    compare.sync_selection(app, ["1-1", "1-2", "1-3"], {"1-3"})
+    compare.sync_selection(app, ["1-1", "1-2", "1-3"], {"1-3", "1-1"})
+    df = compare.metrics_table(app, compare.selected_groups(app))
+    assert list(df["Device"]) == ["1-3", "1-1"]
+    assert list(df["Label"]) == ["세 번째", "1-1"]
+    assert list(df.columns) == ["Device", "Label", *compare.METRIC_COLUMNS]
+    g = app.device("1-3")
+    tm, od = compute(app, g)
+    expected = summary_row(effective_group(app, g), tm, od)
+    for col in compare.METRIC_COLUMNS:
+        assert df.iloc[0][col] == expected[col]
+
+
+def test_formatted_metrics_uses_the_metric_card_formatting():
+    app = _app()
+    compare.sync_selection(app, ["1-1"], {"1-1"})
+    df = compare._formatted_metrics(compare.metrics_table(app, compare.selected_groups(app)))
+    assert df.iloc[0]["V_th (V)"].endswith(" V")
+    assert "E" in df.iloc[0]["mu_sat (cm2/Vs)"]
+
+
+def test_image_plan_key_changes_with_device_params_and_fit_range(monkeypatch):
+    """fit 직선은 파라미터·fit 구간에 따라 달라진다 — 키에 빠지면 예전 그림이 내려간다."""
+    app = _app()
+    compare.sync_selection(app, ["1-1"], {"1-1"})
+    key1, _r = compare.compare_image_plan(app, "png", 1)
+    app.global_params = DeviceParams(w_um=500.0, l_um=50.0, eps_r=3.9, d_nm=300.0)
+    key2, _r = compare.compare_image_plan(app, "png", 1)
+    assert key1 != key2
+    monkeypatch.setattr(compare, "fit_range_for", lambda app, name: (-50.0, -20.0))
+    key3, _r = compare.compare_image_plan(app, "png", 1)
+    assert key3 != key2
+
 
 def test_image_plan_key_changes_with_settings_and_selection():
     app = _app()

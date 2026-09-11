@@ -51,20 +51,58 @@ def assign_colors(names, manual: dict | None = None) -> dict[str, str]:
             for i, name in enumerate(names)}
 
 
+def _unpack(item):
+    """(라벨, 커브, 색[, fit]) — fit 은 선택이라 3-튜플도 그대로 받는다."""
+    label, curve, color, *rest = item
+    return label, curve, color, (rest[0] if rest else None)
+
+
+def _add_fit(fig: go.Figure, label: str, fit, color: str, lw: float, k: float) -> None:
+    """√|I_D| 위에 그 소자의 fit 직선과 V_th 절편 마커를 같은 색으로 얹는다.
+
+    Transfer 그래프는 fit 을 고정 빨강으로 그리지만, 여기서는 소자마다 색이
+    다르므로 커브 색을 따라가야 어느 fit 이 어느 커브의 것인지 읽힌다. 커브가
+    실선이라 fit 은 점선으로 구분한다(reverse 는 파선). fit 구간 음영은 여러
+    소자가 겹치면 뭉개지므로 그리지 않는다.
+    """
+    if fit is None or fit.slope == 0:
+        return
+    v_th = -fit.intercept / fit.slope
+    x_lo, x_hi = sorted((fit.v_start, fit.v_end))
+    x_line = np.array([min(x_lo, v_th), max(x_hi, v_th)], dtype=float)
+    fig.add_trace(go.Scatter(
+        x=x_line, y=fit.slope * x_line + fit.intercept, name=f"{label} fit",
+        mode="lines", line=dict(color=color, width=max(0.25, lw * 0.9), dash="dot"),
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[v_th], y=[0.0], name=f"{label} V_th", mode="markers",
+        marker=dict(color=color, size=max(3, round(10 * k)), symbol="circle-open",
+                    line=dict(width=max(0.5, 2 * k))),
+        hoverinfo="skip",
+    ))
+
+
 def compare_figure(items, settings: dict, k: float = 1.0) -> go.Figure:
-    """``items`` = [(라벨, TransferCurve, 색)] 을 한 축에 겹쳐 그린다."""
+    """``items`` = [(라벨, TransferCurve, 색[, FitResult])] 을 한 축에 겹쳐 그린다.
+
+    fit 은 √|I_D| 위의 직선이라 mode 가 ``sqrt`` 일 때만 그린다 — log 축에
+    옮겨 그리면 곡선이 되어 논문 관례와 어긋난다.
+    """
     geom, style = settings["geom"], settings["style"]
     axes, cfg, insets = settings["axes"], settings["compare"], settings["insets"]
 
     mode = cfg.get("mode", "log")
     show_reverse = bool(cfg.get("show_reverse", False))
+    show_fit = bool(cfg.get("show_fit", True)) and mode == "sqrt"
     lw = max(0.25, float(style["line_width"]) * k)
 
     fig = new_figure(geom, k)
     x_dom, y_dom = domains(geom)
 
     all_v, all_y, legend_rows = [], [], []
-    for label, curve, color in items:
+    for item in items:
+        label, curve, color, fit = _unpack(item)
         if curve is None:
             continue
         legend_rows.append((color, apply_markup(str(label))))
@@ -84,6 +122,8 @@ def compare_figure(items, settings: dict, k: float = 1.0) -> go.Figure:
                 x=v, y=y, name=f"{label} {branch}", mode="lines",
                 line=dict(color=color, width=lw, dash=dash), hoverinfo="skip",
             ))
+        if show_fit:
+            _add_fit(fig, label, fit, color, lw, k)
 
     # 빈 선택(또는 전부 빈 커브)이어도 축은 나와야 한다 — figure_transfer 와 같은 방어.
     v_cat = np.concatenate(all_v) if all_v else np.array([0.0, 1.0])

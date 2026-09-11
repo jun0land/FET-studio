@@ -208,6 +208,9 @@ DEFAULTS = {
         # 겹쳐 그릴 때 쓸 이름은 여기서 따로 갖는다. 마크업을 쓸 수 있다.
         "labels": {},
         "legend": True,
+        # 멀티 커브 편집에서 소자별 fit 직선·V_th 마커를 얹을지. √|I_D| 모드에서만
+        # 그려진다 (fit 은 √|I_D| 위의 직선이다).
+        "show_fit": True,
         # transfer 커브는 좌상 -> 우하로 흐르므로 두 모서리(좌하/우상)가 빈다.
         # Output 레전드(insets["legend"], 우하 기본)와 자리를 따로 갖는 이유다.
         "legend_pos": "bottom-left",
