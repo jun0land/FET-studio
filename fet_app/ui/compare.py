@@ -57,14 +57,17 @@ THUMB_W_IN, THUMB_H_IN = 2.2, 1.8
 THUMB_TICK_PX = 10
 UNSELECTED_COLOR = "#9E9E9E"
 # 편집 화면 배치. 그래프는 하나로 겹쳐져 폭이 고정(기본 배율에서 약 500px)이라,
-# 화면을 [커브 카드 | 그래프 | 옆 패널] 로 나누고 그래프 오른쪽 여백에 표시
-# 옵션·다운로드를 세운다. 지표 표는 그래프+옆 패널 폭을 쓴다.
-#   EDIT_COLS  : 왼쪽 커브 카드 열 / 오른쪽(그래프+옆 패널+표) 열
-#   GRAPH_COLS : 오른쪽 열 안에서 그래프 / 옆 패널 (중첩 한 단계)
-# 가장 좁을 때(1000 CSS px, 본문 949px) 오른쪽 열은 (949-16)*3/4 = 700px 이고
-# 그래프 칸은 (700-16)*3/4 = 513px 로 그래프(499px)보다 넓어야 종횡비가 산다.
-EDIT_COLS = [1, 3]
-GRAPH_COLS = [3, 1]
+# 화면을 [커브 카드 | 그래프 | 서식 패널] 평평한 3열로 나누고 그래프 오른쪽에
+# 표시 옵션·다운로드·축·서식·인셋·크기 편집을 탭으로 세운다. 지표 표는 그 아래
+# 그래프+서식 패널 폭을 쓴다.
+#
+# 3열을 평평하게 두는 이유: 서식 패널 안의 편집칸(min|max, major|minor 등)이
+# 2열이라 패널 자체가 1단계 컬럼이어야 한다 — Streamlit 은 컬럼 중첩을 한
+# 단계까지만 허용한다.
+# 가장 좁을 때(1000 CSS px, 본문 949px): 열 간격 2 x 16px 을 빼면 917px 이고
+# 그래프 칸은 917 * 2.8 / 5.1 = 503px 로 그래프(499px)보다 넓어야 종횡비가 산다.
+# 그때 서식 패널은 약 234px — 2열 입력칸이 100px 남짓으로 숫자 몇 자는 들어간다.
+EDIT_COLS = [1, 2.8, 1.3]
 # 편집 화면에서 같이 보여주는 지표 표의 열 (summary_row 의 열 이름 그대로).
 METRIC_COLUMNS = ["V_th (V)", "mu_sat (cm2/Vs)", "I_on/I_off", "SS (mV/dec)",
                   "dV_th (V)", "Fit R2", "Fit range (V)", "Fit points"]
@@ -326,26 +329,22 @@ def _render_edit(app) -> None:
         return
     colors = assign_colors(app.compare_selected, app.settings["compare"].get("colors"))
 
-    left, right = st.columns(EDIT_COLS, gap="medium")
+    left, graph_col, side = st.columns(EDIT_COLS, gap="medium")
     with left:
         st.markdown("**커브**")
         for g in groups:
             _render_curve_card(app, g, colors[g.name])
-    with right:
-        # 그래프 | 옆 패널 — 오른쪽 열 안의 중첩 한 단계. 옆 패널(표시 옵션·
-        # 다운로드)은 컬럼을 더 만들지 않는다(체크박스·선택 상자 세로 배치).
-        graph_col, side = st.columns(GRAPH_COLS, gap="medium")
-        with graph_col:
-            st.plotly_chart(
-                compare_figure(selected_items(app, with_fit=True), _compare_settings(app),
-                               preview_scale(app)),
-                use_container_width=False, key="cmp_main")
-        with side:
-            st.markdown("**표시**")
-            _render_edit_controls(app)
-            st.markdown("**다운로드**")
-            _render_downloads(app)
+    with graph_col:
+        st.plotly_chart(
+            compare_figure(selected_items(app, with_fit=True), _compare_settings(app),
+                           preview_scale(app)),
+            use_container_width=False, key="cmp_main")
+    with side:
+        _render_side_panel(app)
 
+    # 지표 표는 그래프 + 서식 패널 폭 (왼쪽 카드 열과 같은 비율로 비운다).
+    _, table_col = st.columns([EDIT_COLS[0], EDIT_COLS[1] + EDIT_COLS[2]], gap="medium")
+    with table_col:
         st.markdown("**성능 지표**")
         df = metrics_table(app, groups)
         st.table(_formatted_metrics(df).drop(columns=["Device"]))
@@ -353,29 +352,30 @@ def _render_edit(app) -> None:
                            file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
                            key="cmp_metrics_csv")
 
-        _render_format_panels(app)
 
-
-def _render_format_panels(app) -> None:
-    """단일 그래프 편집 패널(축·서식·인셋·크기)을 그대로 이 화면에 다시 그린다.
+def _render_side_panel(app) -> None:
+    """그래프 오른쪽 서식 패널 — 탭 하나가 단일 그래프 편집 패널의 탭 하나에 대응한다.
 
     비교 그래프는 Transfer 그래프의 서식(transfer_axes·style·transfer_geom·insets)을
     그대로 물려받으므로 새 설정을 만들 게 없다 — 같은 dict 를 편집하는 같은 패널을
     여기서도 보여주면 된다. 위젯 key 도 같지만 좌측 패널은 이 화면에서 그려지지
-    않으므로 충돌하지 않는다. Transfer 의 선 색은 소자별 색이 대신하므로 뺀다.
+    않으므로 충돌하지 않는다. 패널이 좁아 축 편집칸은 2열 x 2행 버전을 쓴다.
+    Transfer 의 선 색은 소자별 색이 대신하므로 뺀다.
     """
-    with st.expander("그래프 서식 — 축 · 서식 · 인셋 · 크기", expanded=False):
-        tabs = st.tabs(["축", "서식", "인셋", "크기 · 프리셋"])
-        with tabs[0]:
-            st.caption("Transfer 그래프와 같은 축 설정입니다. 모드에 없는 축은 무시됩니다.")
-            panel_axes.render_transfer_axes(app)
-        with tabs[1]:
-            panel_style.render_typography(app)
-            panel_style.render_transfer_colors(app, axes_only=True)
-        with tabs[2]:
-            panel_insets.render_for_compare(app)
-        with tabs[3]:
-            panel_style.render_page_and_presets(app)
+    tabs = st.tabs(["표시", "축", "서식", "인셋", "크기"])
+    with tabs[0]:
+        _render_edit_controls(app)
+        st.markdown("**다운로드**")
+        _render_downloads(app)
+    with tabs[1]:
+        panel_axes.render_transfer_axes_compact(app)
+    with tabs[2]:
+        panel_style.render_typography(app)
+        panel_style.render_transfer_colors(app, axes_only=True)
+    with tabs[3]:
+        panel_insets.render_for_compare(app)
+    with tabs[4]:
+        panel_style.render_page_and_presets(app)
 
 
 # ---------------- 진입 ----------------

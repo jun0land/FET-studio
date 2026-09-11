@@ -50,7 +50,7 @@ def render_transfer_colors(app, *, axes_only: bool = False) -> None:
                 ("우 선 색", "line_color_right", "t_line_r"))
     if axes_only:
         swatches = tuple(sw for sw in swatches if sw[1].startswith("axis_"))
-    cols = st.columns(4)
+    cols = st.columns(len(swatches))
     for col, (lbl, field, wkey) in zip(cols, swatches):
         with col:
             color_picker.color_picker(lbl, ts, field, key=wkey)
