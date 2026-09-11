@@ -311,15 +311,28 @@ def _formatted_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _render_downloads(app) -> None:
-    fmt = _FMT_KEY[st.selectbox("이미지 형식", FORMATS, key="cmp_fmt")]
-    scale = st.selectbox("배율", [1, 2, 4], index=0, key="cmp_scale")
+def _render_exports(app, df: pd.DataFrame) -> None:
+    """내보내기 한 줄 — 그래프 이미지(형식·배율·받기)와 지표 CSV.
+
+    작업 끝에 한 번 쓰는 것이라 화면 맨 아래(지표 표 아래)에 둔다. 편집 중에는
+    눈에 안 띄어야 하고, 편집 칸들은 그래프 옆에서 스크롤 없이 닿아야 한다.
+    """
+    c1, c2, c3, c4, _ = st.columns([1, 0.7, 1.4, 1, 3], vertical_alignment="bottom")
+    with c1:
+        fmt = _FMT_KEY[st.selectbox("이미지 형식", FORMATS, key="cmp_fmt")]
+    with c2:
+        scale = st.selectbox("배율", [1, 2, 4], index=0, key="cmp_scale")
     key, render = compare_image_plan(app, fmt, scale)
-    st.download_button("비교 그래프 다운로드",
-                       data=lambda: _cached_image_bytes(render, key),
-                       file_name=f"fet_transfer_compare.{fmt}",
-                       mime=_MIME.get(fmt, "application/octet-stream"),
-                       use_container_width=True, key="cmp_dl")
+    with c3:
+        st.download_button("비교 그래프 다운로드",
+                           data=lambda: _cached_image_bytes(render, key),
+                           file_name=f"fet_transfer_compare.{fmt}",
+                           mime=_MIME.get(fmt, "application/octet-stream"),
+                           key="cmp_dl")
+    with c4:
+        st.download_button("지표 CSV", data=lambda: export.summary_csv_bytes(df),
+                           file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
+                           key="cmp_metrics_csv")
 
 
 def _render_edit(app) -> None:
@@ -348,9 +361,8 @@ def _render_edit(app) -> None:
         st.markdown("**성능 지표**")
         df = metrics_table(app, groups)
         st.table(_formatted_metrics(df).drop(columns=["Device"]))
-        st.download_button("지표 CSV", data=lambda: export.summary_csv_bytes(df),
-                           file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
-                           key="cmp_metrics_csv")
+        st.markdown("**내보내기**")
+        _render_exports(app, df)
 
 
 def _render_side_panel(app) -> None:
@@ -365,8 +377,6 @@ def _render_side_panel(app) -> None:
     tabs = st.tabs(["표시", "축", "서식", "인셋", "크기"])
     with tabs[0]:
         _render_edit_controls(app)
-        st.markdown("**다운로드**")
-        _render_downloads(app)
     with tabs[1]:
         panel_axes.render_transfer_axes_compact(app)
     with tabs[2]:
