@@ -13,7 +13,8 @@ import numpy as np
 import plotly.graph_objects as go
 
 from fet_app.constants import (
-    AXIS_TITLE_PAD, SWEEP_ARROW_HEAD_PX, SWEEP_ARROW_MARGIN, TICK_CHAR_W,
+    AXIS_TITLE_PAD, RIGHT_AXIS_TITLE_ANGLE, RIGHT_AXIS_TITLE_NAME, SWEEP_ARROW_HEAD_PX,
+    SWEEP_ARROW_MARGIN, TICK_CHAR_W,
 )
 from fet_app.markup import apply_markup
 
@@ -239,6 +240,42 @@ def y_axis_space_px(lay: dict, style: dict, k: float = 1.0) -> float:
     if has_title:
         need += standoff + title_px + AXIS_TITLE_PAD * k
     return need
+
+
+def rotate_right_axis_title(fig: go.Figure, lay: dict, style: dict, k: float,
+                            geom: dict, x_dom, y_dom) -> None:
+    """우측 Y축 제목을 270도(위에서 아래로 읽힘)로 돌린다. Origin 의 우축 기본값.
+
+    Plotly 축 제목은 각도를 바꿀 수 없다 — 우축도 좌축과 똑같이 90도(아래에서
+    위로)로만 그려진다. 그래서 제목을 축 layout 에서 떼어 내고(빈 문자열) 같은
+    글꼴·색의 annotation 으로 다시 그린다. ``textangle=90`` 은 Plotly 기준 시계
+    방향 90도 = Origin 의 270도다.
+
+    자리는 fit_y_margins 가 '눈금 라벨 폭 + standoff + 제목 폭' 으로 이미 확보해
+    둔 여백 안이다: 축선에서 라벨 폭과 standoff 만큼 떨어진 곳에 제목 높이의
+    절반을 더한 지점을 회전 중심으로 잡는다. 반드시 fit_y_margins **다음에**
+    불러야 한다 — 이 함수가 제목을 비우면 그 뒤로는 여백 계산에 제목이 빠진다.
+    """
+    text = (lay.get("title") or {}).get("text") or ""
+    if not text:
+        return
+    page_w = float(px_size(geom, k)[0])
+    if page_w <= 0:
+        return
+    tick_px = max(1.0, float(style["tick_font_size"]) * k)
+    title_px = max(1.0, float(style["title_font_size"]) * k)
+    chars = max((len(t) for t in tick_label_texts(lay)), default=0)
+    standoff = float(lay["title"].get("standoff", 0.0) or 0.0)
+    x_px = (float(x_dom[1]) * page_w + chars * tick_px * TICK_CHAR_W
+            + AXIS_TITLE_PAD * k + standoff + title_px / 2)
+    fig.add_annotation(
+        x=min(1.0, x_px / page_w), y=(float(y_dom[0]) + float(y_dom[1])) / 2,
+        xref="paper", yref="paper", xanchor="center", yanchor="middle",
+        text=text, textangle=RIGHT_AXIS_TITLE_ANGLE, showarrow=False,
+        font=dict(lay["title"].get("font", {})),
+        name=RIGHT_AXIS_TITLE_NAME,
+    )
+    lay["title"]["text"] = ""
 
 
 def fit_y_margins(geom: dict, x_dom: list[float], style: dict, k: float = 1.0,

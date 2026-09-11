@@ -31,7 +31,7 @@ from fet_app.figure_compare import (
     LEGEND_POS_LABELS, MODE_LABELS, assign_colors, compare_figure,
 )
 from fet_app.metrics import transfer_metrics
-from fet_app.ui import color_picker, panel_fit
+from fet_app.ui import color_picker, panel_axes, panel_fit, panel_insets, panel_style
 from fet_app.ui.export_ui import _FMT_KEY, _MIME, FORMATS, _cached_image_bytes
 from fet_app.ui.panel_fit import fit_range_for
 from fet_app.ui.summary import (
@@ -106,6 +106,7 @@ def _thumb_settings(app) -> dict:
         base["axes"][axis]["title"] = ""
     # 썸네일은 '어느 커브인지' 알아보는 용도라 가장 낯익은 log|I_D| 하나만 그린다.
     base["compare"]["mode"] = "log"
+    base["compare"]["show_reverse"] = False
     base["compare"]["legend"] = False
     base["compare"]["show_fit"] = False
     base["insets"] = copy.deepcopy(base["insets"])
@@ -236,8 +237,11 @@ def _render_edit_controls(app) -> None:
     # 옆 패널은 좁다(가장 좁을 때 약 170px) — 체크박스를 세로로 쌓는다.
     cfg["legend"] = st.checkbox("레전드", value=bool(cfg.get("legend", True)),
                                 key="cmp_legend")
-    cfg["show_reverse"] = st.checkbox("reverse", value=bool(cfg.get("show_reverse", False)),
+    cfg["show_reverse"] = st.checkbox("reverse", value=bool(cfg.get("show_reverse", True)),
                                       key="cmp_rev")
+    cfg["show_sweep_arrows"] = st.checkbox(
+        "스윕 방향 화살표", value=bool(cfg.get("show_sweep_arrows", True)),
+        key="cmp_arrows", disabled=not cfg["show_reverse"])
     cfg["show_fit"] = st.checkbox("fit 직선", value=bool(cfg.get("show_fit", True)),
                                   key="cmp_fit")
     if cfg["show_fit"] and cfg["mode"] == "log":
@@ -348,6 +352,30 @@ def _render_edit(app) -> None:
         st.download_button("지표 CSV", data=lambda: export.summary_csv_bytes(df),
                            file_name="fet_transfer_compare_metrics.csv", mime="text/csv",
                            key="cmp_metrics_csv")
+
+        _render_format_panels(app)
+
+
+def _render_format_panels(app) -> None:
+    """단일 그래프 편집 패널(축·서식·인셋·크기)을 그대로 이 화면에 다시 그린다.
+
+    비교 그래프는 Transfer 그래프의 서식(transfer_axes·style·transfer_geom·insets)을
+    그대로 물려받으므로 새 설정을 만들 게 없다 — 같은 dict 를 편집하는 같은 패널을
+    여기서도 보여주면 된다. 위젯 key 도 같지만 좌측 패널은 이 화면에서 그려지지
+    않으므로 충돌하지 않는다. Transfer 의 선 색은 소자별 색이 대신하므로 뺀다.
+    """
+    with st.expander("그래프 서식 — 축 · 서식 · 인셋 · 크기", expanded=False):
+        tabs = st.tabs(["축", "서식", "인셋", "크기 · 프리셋"])
+        with tabs[0]:
+            st.caption("Transfer 그래프와 같은 축 설정입니다. 모드에 없는 축은 무시됩니다.")
+            panel_axes.render_transfer_axes(app)
+        with tabs[1]:
+            panel_style.render_typography(app)
+            panel_style.render_transfer_colors(app, axes_only=True)
+        with tabs[2]:
+            panel_insets.render_for_compare(app)
+        with tabs[3]:
+            panel_style.render_page_and_presets(app)
 
 
 # ---------------- 진입 ----------------

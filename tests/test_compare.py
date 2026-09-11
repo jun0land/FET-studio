@@ -12,7 +12,7 @@ import inspect
 import numpy as np
 import pandas as pd
 
-from fet_app.constants import COMPARE_PALETTE, DEFAULTS
+from fet_app.constants import COMPARE_PALETTE, DEFAULTS, RIGHT_AXIS_TITLE_NAME
 from fet_app.curves import TransferCurve
 from fet_app.figure_compare import (
     LEGEND_POSITIONS, assign_colors, compare_figure, palette_color,
@@ -86,7 +86,7 @@ def test_colors_follow_selection_order():
 
 def test_each_device_gets_one_trace_in_its_own_color():
     items = [("1-1", _curve(), "#0072B2"), ("1-2", _curve(0.5), "#D55E00")]
-    fig = compare_figure(items, _settings(mode="log"))
+    fig = compare_figure(items, _settings(mode="log", show_reverse=False))
     assert len(fig.data) == 2
     assert [t.line.color for t in fig.data] == ["#0072B2", "#D55E00"]
     assert [t.line.dash for t in fig.data] == ["solid", "solid"]
@@ -119,8 +119,42 @@ def test_dual_mode_is_the_default_and_mirrors_the_transfer_figure_conventions():
     assert by_name["1-1 V_th"].yaxis == "y2" and by_name["1-1 V_th"].marker.color == "#0072B2"
     assert fig.layout.yaxis.type == "log"
     assert fig.layout.yaxis2.type == "linear" and fig.layout.yaxis2.side == "right"
-    assert fig.layout.yaxis2.title.text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)"
     assert fig.layout.yaxis2.range[0] == 0.0
+    # 우축 제목은 Transfer 그래프처럼 270도 annotation 으로 그린다
+    from fet_app.constants import RIGHT_AXIS_TITLE_NAME
+    title = next(a for a in fig.layout.annotations if a.name == RIGHT_AXIS_TITLE_NAME)
+    assert title.text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)" and title.textangle == 90
+    assert fig.layout.yaxis2.title.text in (None, "")
+
+
+def _arrow_heads(fig):
+    return [a for a in fig.layout.annotations if a.showarrow]
+
+
+def test_dual_sweep_shows_both_directions_with_arrows_in_the_curve_color():
+    """dual sweep 이면 갔다 오는 것을 다 그리고(기본), Transfer 그래프와 같은 방향
+    화살표를 소자마다 그 소자 색으로 얹는다."""
+    assert DEFAULTS["compare"]["show_reverse"] is True
+    assert DEFAULTS["compare"]["show_sweep_arrows"] is True
+    items = [("1-1", _curve(), "#0072B2"), ("1-2", _curve(0.5), "#D55E00")]
+    fig = compare_figure(items, _settings())
+    names = [t.name for t in fig.data]
+    assert "1-1 reverse |I_D|" in names and "1-2 reverse √|I_D|" in names
+    heads = _arrow_heads(fig)
+    assert len(heads) == 4                        # 소자 2 x (가는/오는)
+    assert {a.arrowcolor for a in heads} == {"#0072B2", "#D55E00"}
+    paths = [sh for sh in fig.layout.shapes if sh.type == "path"]
+    assert len(paths) == 4
+    for a in heads:                               # 플롯 경계 안쪽
+        assert 0.0 <= a.x <= 1.0 and 0.0 <= a.y <= 1.0
+
+
+def test_sweep_arrows_follow_the_sqrt_curve_in_sqrt_mode_and_can_be_turned_off():
+    items = [("a", _curve(), "#000000")]
+    assert len(_arrow_heads(compare_figure(items, _settings(mode="sqrt")))) == 2
+    assert not _arrow_heads(compare_figure(items, _settings(show_sweep_arrows=False)))
+    assert not _arrow_heads(compare_figure(items, _settings(show_reverse=False)))
+    assert not _arrow_heads(compare_figure([("a", _curve(dual=False), "#000")], _settings()))
 
 
 def test_dual_mode_reverse_keeps_the_same_line_styles():
@@ -165,10 +199,17 @@ def test_x_range_covers_every_selected_curve():
     assert fig.layout.xaxis.range == (-80.0, 40.0)
 
 
+def _legend_texts(fig):
+    """레전드 라벨 annotation 만 — 우축 제목(270도 annotation)과 화살촉(텍스트
+    없는 annotation)은 뺀다."""
+    return [a.text for a in fig.layout.annotations
+            if a.name != RIGHT_AXIS_TITLE_NAME and a.text]
+
+
 def test_legend_swatches_carry_the_device_names():
     items = [("1-1", _curve(), "#0072B2"), ("1-2", _curve(), "#D55E00")]
     fig = compare_figure(items, _settings())
-    labels = [a.text for a in fig.layout.annotations]
+    labels = _legend_texts(fig)
     assert labels == ["1-1", "1-2"]
     assert [sh.line.color for sh in fig.layout.shapes if sh.type == "line"] == \
         ["#0072B2", "#D55E00"]
@@ -176,11 +217,15 @@ def test_legend_swatches_carry_the_device_names():
 
 def test_legend_can_be_turned_off_and_moved():
     items = [("1-1", _curve(), "#0072B2")]
-    assert not compare_figure(items, _settings(legend=False)).layout.annotations
+    assert not _legend_texts(compare_figure(items, _settings(legend=False)))
+
+    def _legend_y(fig):
+        return next(a.y for a in fig.layout.annotations
+                    if a.name != RIGHT_AXIS_TITLE_NAME and a.text)
 
     bottom = compare_figure(items, _settings(legend_pos="bottom-left"))
     top = compare_figure(items, _settings(legend_pos="top-right"))
-    assert bottom.layout.annotations[0].y < top.layout.annotations[0].y
+    assert _legend_y(bottom) < _legend_y(top)
     assert "bottom-left" in LEGEND_POSITIONS
 
 
@@ -274,7 +319,7 @@ def test_custom_legend_name_reaches_the_figure_with_markup():
     assert [name for name, _c, _color in items] == ["1-1", "PMMA 20 nm (V_{th} 보정)"]
 
     fig = compare_figure(items, _settings())
-    assert [a.text for a in fig.layout.annotations] ==         ["1-1", "PMMA 20 nm (V<sub>th</sub> 보정)"]
+    assert _legend_texts(fig) == ["1-1", "PMMA 20 nm (V<sub>th</sub> 보정)"]
 
 
 def test_image_plan_key_changes_when_a_legend_name_changes():

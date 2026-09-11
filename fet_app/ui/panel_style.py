@@ -14,11 +14,11 @@ from fet_app.ui import color_picker
 from fet_app.ui.viewport import FALLBACK_SCALE
 
 
-def render(app) -> None:
-    """'서식' 탭 내용 — 폰트/색/두께/토글만. 크기·배율과 프리셋은 내보내기
-    패널(우측)로 옮겼다. render_page_and_presets() 를 보라."""
-    s = app.settings
-    style = s["style"]
+def render_typography(app) -> None:
+    """폰트·글자 크기·선 두께 — 전 그래프 공통(style). Transfer 비교의 편집
+    화면도 이 함수를 그대로 부른다(같은 설정을 편집하므로 위젯 key 도 같다 —
+    두 화면이 동시에 그려지지 않으니 충돌하지 않는다)."""
+    style = app.settings["style"]
     style["font_family"] = st.selectbox(
         "폰트", FONT_FAMILIES, index=FONT_FAMILIES.index(style["font_family"]),
         key="font_family")
@@ -35,19 +35,33 @@ def render(app) -> None:
         "선 두께", min_value=0.5, max_value=10.0,
         value=float(style["line_width"]), step=LINE_WIDTH_STEP, key="lw")
 
+
+def render_transfer_colors(app, *, axes_only: bool = False) -> None:
+    """Transfer 의 축 색·선 색 스와치. ``axes_only`` 면 축 색 둘만 — Transfer 비교는
+    선 색을 소자마다 따로 주므로 여기의 선 색은 쓰이지 않는다."""
     # 축(선·눈금·제목) 색과 커브 선 색은 독립이다. 트리거가 32px 정사각형
     # 스와치라 2x2 로 벌려두면 넓은 컬럼 안에 점 하나만 떠 있는 꼴이 된다.
     # 네 개를 한 줄에 [좌축][좌선][우축][우선] 순서로 붙여 좌/우가 이웃하게 둔다.
-    ts = s["transfer_style"]
+    ts = app.settings["transfer_style"]
     st.caption("색 — 좌축 log|I_D| · 우축 √|I_D|")
-    cols = st.columns(4)
     swatches = (("좌축 색", "axis_color_left", "t_axis_l"),
                 ("좌 선 색", "line_color_left", "t_line_l"),
                 ("우축 색", "axis_color_right", "t_axis_r"),
                 ("우 선 색", "line_color_right", "t_line_r"))
+    if axes_only:
+        swatches = tuple(sw for sw in swatches if sw[1].startswith("axis_"))
+    cols = st.columns(4)
     for col, (lbl, field, wkey) in zip(cols, swatches):
         with col:
             color_picker.color_picker(lbl, ts, field, key=wkey)
+
+
+def render(app) -> None:
+    """'서식' 탭 내용 — 폰트/색/두께/토글만. 크기·배율과 프리셋은 내보내기
+    패널(우측)로 옮겼다. render_page_and_presets() 를 보라."""
+    s = app.settings
+    render_typography(app)
+    render_transfer_colors(app)
     s["transfer_style"]["show_reverse"] = st.checkbox(
         "reverse 표시", value=s["transfer_style"]["show_reverse"], key="trev")
     # dual sweep 은 선 종류가 아니라 반환점 옆 화살표로 구분한다 (forward/

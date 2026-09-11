@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pandas as pd
 
-from fet_app.constants import DEFAULTS, FIT_BAND_SHAPE_NAME
+from fet_app.constants import DEFAULTS, FIT_BAND_SHAPE_NAME, RIGHT_AXIS_TITLE_NAME
 from fet_app.curves import TransferCurve
 from fet_app.figure_transfer import transfer_figure
 from fet_app.metrics import transfer_metrics
@@ -32,16 +32,47 @@ def _curve(dual=True):
     return TransferCurve(forward=fwd, reverse=rev, v_ds=-60.0, dual=dual)
 
 
+def _right_title(fig):
+    return next(a for a in fig.layout.annotations if a.name == RIGHT_AXIS_TITLE_NAME)
+
+
 def test_left_axis_title_uses_absolute_value_symbol():
     """FET 에서는 절댓값 기호를 쓴다 (스펙 §5.2 — photodetector 규약을 뒤집은 항목).
 
     기본 제목은 인라인 마크업(`_{...}`/`^{...}`)으로 정의되어 있고, axis_layout 이
-    apply_markup 을 거쳐 Plotly HTML(<sub>/<sup>)로 렌더한다 (FIX 1)."""
+    apply_markup 을 거쳐 Plotly HTML(<sub>/<sup>)로 렌더한다 (FIX 1). 우축 제목은
+    270도로 돌리느라 annotation 으로 그린다 (아래 테스트)."""
     c = _curve()
     fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
     assert fig.layout.yaxis.title.text == "|I<sub>D</sub>| (A)"
-    assert fig.layout.yaxis2.title.text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)"
+    assert _right_title(fig).text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)"
     assert fig.layout.xaxis.title.text == "V<sub>G</sub> (V)"
+
+
+def test_right_axis_title_reads_top_to_bottom():
+    """우축 제목은 좌축(아래->위, 90도)과 마주 보게 위->아래(Origin 270도)로.
+    Plotly 축 제목은 각도를 못 바꾸므로 축 제목을 비우고 annotation 으로 돌린다."""
+    c = _curve()
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), _settings())
+    assert fig.layout.yaxis2.title.text in (None, "")
+    ann = _right_title(fig)
+    assert ann.textangle == 90                     # Plotly 시계 방향 90 = Origin 270
+    assert ann.xref == "paper" and ann.yref == "paper"
+    # 플롯 오른쪽 여백 안, 세로로는 플롯 가운데
+    x_dom, y_dom = fig.layout.xaxis.domain, fig.layout.yaxis.domain
+    assert x_dom[1] < ann.x <= 1.0
+    assert abs(ann.y - (y_dom[0] + y_dom[1]) / 2) < 1e-6
+    # 글꼴·색은 축 제목 설정을 그대로 따른다
+    assert ann.font.size == fig.layout.yaxis.title.font.size
+    assert ann.font.color == fig.layout.yaxis2.tickfont.color
+
+
+def test_right_axis_title_follows_the_right_axis_color():
+    c = _curve()
+    s = _settings()
+    s["trace"]["axis_color_right"] = "#FF0000"
+    fig = transfer_figure(c, transfer_metrics(c, PARAMS), s)
+    assert _right_title(fig).font.color == "#FF0000"
 
 
 def test_second_axis_overlays_on_right():
@@ -209,7 +240,7 @@ def test_left_and_right_axes_take_independent_colors():
     assert fig.layout.yaxis.linecolor == "#0000FF"
     assert fig.layout.yaxis.title.font.color == "#0000FF"
     assert fig.layout.yaxis2.linecolor == "#FF0000"
-    assert fig.layout.yaxis2.title.font.color == "#FF0000"
+    assert _right_title(fig).font.color == "#FF0000"
     # x 축은 좌/우 어느 쪽에도 속하지 않으므로 검정을 유지한다.
     assert fig.layout.xaxis.linecolor == "#000000"
 
@@ -233,7 +264,7 @@ def test_axis_color_and_line_color_are_separate_settings():
     assert fig.layout.yaxis.title.font.color == "#111111"
     assert fig.layout.yaxis2.linecolor == "#222222"
     assert fig.layout.yaxis2.tickfont.color == "#222222"
-    assert fig.layout.yaxis2.title.font.color == "#222222"
+    assert _right_title(fig).font.color == "#222222"
 
 
 def test_default_transfer_colors_are_all_black():

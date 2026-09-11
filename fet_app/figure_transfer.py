@@ -14,7 +14,7 @@ from fet_app.constants import (
 )
 from fet_app.figure_common import (
     add_curved_arrow, apply_inset_text, axis_layout, curve_arrow_points, domains,
-    fit_y_margins, new_figure, plot_px_size,
+    fit_y_margins, new_figure, plot_px_size, rotate_right_axis_title,
 )
 
 
@@ -24,9 +24,12 @@ def _abs_positive(a: np.ndarray) -> np.ndarray:
     return np.where(out > 0, out, np.nan)
 
 
-def _fractions(v: np.ndarray, i_abs: np.ndarray,
-               x_rng, y_rng) -> tuple[np.ndarray, np.ndarray] | None:
-    """데이터 좌표 -> 플롯 영역 안의 domain 비율 (좌축은 log 라 지수로 잰다)."""
+def _fractions(v: np.ndarray, i_abs: np.ndarray, x_rng, y_rng,
+               log_y: bool = True) -> tuple[np.ndarray, np.ndarray] | None:
+    """데이터 좌표 -> 플롯 영역 안의 domain 비율.
+
+    log 축이면 range 가 지수(decade)라 log10 으로, linear √ 축이면 √ 값 그대로 잰다.
+    """
     if not x_rng or not y_rng:
         return None
     x0, x1 = float(x_rng[0]), float(x_rng[1])
@@ -34,19 +37,22 @@ def _fractions(v: np.ndarray, i_abs: np.ndarray,
     if x1 == x0 or y1 == y0:
         return None
     with np.errstate(divide="ignore", invalid="ignore"):
-        log_i = np.log10(i_abs)
-    return (v - x0) / (x1 - x0), (log_i - y0) / (y1 - y0)
+        y_val = np.log10(i_abs) if log_y else np.sqrt(i_abs)
+    return (v - x0) / (x1 - x0), (y_val - y0) / (y1 - y0)
 
 
 def _add_sweep_arrows(fig: go.Figure, curve, x_lay: dict, y_lay: dict,
                       geom: dict, x_dom, y_dom, color: str, width: float,
-                      k: float) -> None:
+                      k: float, log_y: bool = True) -> None:
     """반환점(스윕이 꺾이는 쪽) 안쪽에 가는 방향·오는 방향 화살표를 얹는다.
 
     dual sweep 을 선 종류(실선/파선)로 구분하는 대신 쓰는 표시다 — |I_D| 는
     forward/reverse 가 모두 점선이라 선만 봐서는 방향을 알 수 없기 때문이다.
     forward 는 반환점을 '향해' 가고 reverse 는 반환점에서 '나오'므로, 두 화살표를
     커브 양옆(수직 오프셋 부호를 반대로)에 놓아 겹치지 않게 한다.
+
+    ``log_y`` 가 False 면 √|I_D| (linear) 커브를 따라간다 — Transfer 비교의
+    √ 단일 축 모드가 쓴다.
     """
     plot_w, plot_h = plot_px_size(geom, k, x_dom, y_dom)
     if plot_w <= 0 or plot_h <= 0:
@@ -57,7 +63,8 @@ def _add_sweep_arrows(fig: go.Figure, curve, x_lay: dict, y_lay: dict,
         if df is None or df.empty:
             continue
         fr = _fractions(df["V_G"].to_numpy(dtype=float),
-                        _abs_positive(df["I_D"].to_numpy(dtype=float)), x_rng, y_rng)
+                        _abs_positive(df["I_D"].to_numpy(dtype=float)), x_rng, y_rng,
+                        log_y=log_y)
         if fr is None:
             continue
         pts = curve_arrow_points(fr[0], fr[1], plot_w, plot_h,
@@ -168,6 +175,8 @@ def transfer_figure(curve, metrics, settings: dict, k: float = 1.0) -> go.Figure
     x_lay = axis_layout(axes["x"], style, k,
                         data_min=float(np.min(v_cat)), data_max=float(np.max(v_cat)),
                         domain=x_dom)
+    # 우축 제목은 270도(위->아래) — 여백 계산 뒤, layout 반영 전에 떼어낸다.
+    rotate_right_axis_title(fig, y2_lay, style, k, geom, x_dom, y_dom)
 
     fig.update_layout(xaxis=x_lay, yaxis=y_lay, yaxis2=y2_lay)
 

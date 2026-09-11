@@ -22,9 +22,10 @@ import plotly.graph_objects as go
 from fet_app.constants import COMPARE_PALETTE
 from fet_app.figure_common import (
     apply_inset_text, axis_layout, domains, fit_y_margins, new_figure,
+    rotate_right_axis_title,
 )
 from fet_app.figure_output import _add_legend_swatches
-from fet_app.figure_transfer import _abs_positive
+from fet_app.figure_transfer import _abs_positive, _add_sweep_arrows
 from fet_app.markup import apply_markup
 
 MODE_LABELS = {"dual": "|I_D| (log) + √|I_D|", "log": "|I_D| (log)", "sqrt": "√|I_D|"}
@@ -110,7 +111,8 @@ def compare_figure(items, settings: dict, k: float = 1.0) -> go.Figure:
     if mode not in MODE_LABELS:
         mode = "dual"
     dual = mode == "dual"
-    show_reverse = bool(cfg.get("show_reverse", False))
+    show_reverse = bool(cfg.get("show_reverse", True))
+    show_arrows = show_reverse and bool(cfg.get("show_sweep_arrows", True))
     show_fit = bool(cfg.get("show_fit", True)) and mode != "log"
     lw = max(0.25, float(style["line_width"]) * k)
 
@@ -187,6 +189,7 @@ def compare_figure(items, settings: dict, k: float = 1.0) -> go.Figure:
                              side="right", overlaying="y",
                              axis_color=trace_cfg.get("axis_color_right", "#000000"))
         x_dom = fit_y_margins(geom, x_dom, style, k, left_lay=y_lay, right_lay=y2_lay)
+        rotate_right_axis_title(fig, y2_lay, style, k, geom, x_dom, y_dom)
     elif mode == "log":
         y_lay, y2_lay = log_lay, None
         x_dom = fit_y_margins(geom, x_dom, style, k, left_lay=y_lay)
@@ -199,15 +202,24 @@ def compare_figure(items, settings: dict, k: float = 1.0) -> go.Figure:
         y2_lay = None
         x_dom = fit_y_margins(geom, x_dom, style, k, left_lay=y_lay)
 
-    layout = dict(
-        xaxis=axis_layout(axes["x"], style, k,
-                          data_min=float(np.min(v_cat)), data_max=float(np.max(v_cat)),
-                          domain=x_dom),
-        yaxis=y_lay,
-    )
+    x_lay = axis_layout(axes["x"], style, k,
+                        data_min=float(np.min(v_cat)), data_max=float(np.max(v_cat)),
+                        domain=x_dom)
+    layout = dict(xaxis=x_lay, yaxis=y_lay)
     if y2_lay is not None:
         layout["yaxis2"] = y2_lay
     fig.update_layout(**layout)
+
+    if show_arrows:
+        # Transfer 그래프와 같은 스윕 방향 화살표를 소자마다 그 소자 색으로. 좌축
+        # log 커브가 있으면 거기에(dual/log), √ 단일 축이면 √ 커브에 붙인다.
+        arrow_w = max(0.4, lw * 0.9)
+        for item in items:
+            label, curve, color, _fit = _unpack(item)
+            if curve is None or curve.reverse is None:
+                continue
+            _add_sweep_arrows(fig, curve, x_lay, y_lay, geom, x_dom, y_dom,
+                              color, arrow_w, k, log_y=(mode != "sqrt"))
 
     if cfg.get("legend", True):
         # 글꼴·배경 같은 모양은 인셋 레전드 설정을 그대로 쓰고, 자리만 비교 뷰가

@@ -67,18 +67,22 @@ def _anchor_grid(inset: dict, key_prefix: str) -> None:
                     _apply_anchor(inset, key_prefix, pos_key)
 
 
-def _tab(inset: dict, key_prefix: str, *, with_text: bool) -> None:
-    _anchor_grid(inset, key_prefix)
+def _tab(inset: dict, key_prefix: str, *, with_text: bool,
+         with_position: bool = True) -> None:
+    """인셋 하나의 설정. ``with_position`` 이 False 면 앵커 그리드와 x/y 를 생략한다 —
+    Transfer 비교의 레전드는 자리를 그 화면(레전드 위치)이 따로 정하기 때문이다."""
+    if with_position:
+        _anchor_grid(inset, key_prefix)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        inset["x"] = st.number_input(
-            "x (미세조정)", min_value=0.0, max_value=1.0,
-            value=float(inset.get("x", 0.5)), step=0.01, key=f"{key_prefix}_x")
-    with c2:
-        inset["y"] = st.number_input(
-            "y (미세조정)", min_value=0.0, max_value=1.0,
-            value=float(inset.get("y", 0.5)), step=0.01, key=f"{key_prefix}_y")
+        c1, c2 = st.columns(2)
+        with c1:
+            inset["x"] = st.number_input(
+                "x (미세조정)", min_value=0.0, max_value=1.0,
+                value=float(inset.get("x", 0.5)), step=0.01, key=f"{key_prefix}_x")
+        with c2:
+            inset["y"] = st.number_input(
+                "y (미세조정)", min_value=0.0, max_value=1.0,
+                value=float(inset.get("y", 0.5)), step=0.01, key=f"{key_prefix}_y")
 
     inset["font_size"] = st.number_input(
         "글자 크기", min_value=FONT_SIZE_MIN, max_value=FONT_SIZE_MAX,
@@ -108,5 +112,17 @@ def render(app) -> None:
     tabs = st.tabs(["레전드", "샘플명"])
     with tabs[0]:
         _tab(insets["legend"], "inset_legend", with_text=False)
+    with tabs[1]:
+        _tab(insets["sample"], "inset_sample", with_text=True)
+
+
+def render_for_compare(app) -> None:
+    """Transfer 비교 편집 화면용 — 레전드는 글자 크기·테두리·배경만(자리는 그 화면의
+    '레전드 위치'가 정한다), 샘플명은 자리까지 전부."""
+    insets = app.settings["insets"]
+    tabs = st.tabs(["레전드", "샘플명"])
+    with tabs[0]:
+        st.caption("자리는 옆 패널의 '레전드 위치'로 정합니다.")
+        _tab(insets["legend"], "inset_legend", with_text=False, with_position=False)
     with tabs[1]:
         _tab(insets["sample"], "inset_sample", with_text=True)

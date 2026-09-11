@@ -82,6 +82,15 @@ def _axis_tab(axes: dict, key_prefix: str, rows: list[tuple[str, str]]) -> None:
             key=f"{key_prefix}_{axis_key}_title")
 
 
+TRANSFER_ROWS = [("x", "X"), ("y", "좌Y"), ("y2", "우Y")]
+
+
+def render_transfer_axes(app) -> None:
+    """Transfer 축 설정만 — Transfer 비교의 편집 화면이 쓴다. 정보 탭의 '축' 탭과
+    같은 dict·같은 위젯 key 를 편집한다(두 화면은 동시에 그려지지 않는다)."""
+    _axis_tab(app.settings["transfer_axes"], "ax_t", TRANSFER_ROWS)
+
+
 def render(app) -> None:
     """아코디언으로 감싸지 않는다 — 이미 panel_edit 의
     st.tabs(["정보","축","인셋","서식"]) 안 '축' 탭 내용이라, 탭 안에 또
@@ -89,8 +98,7 @@ def render(app) -> None:
     s = app.settings
     tabs = st.tabs(["Transfer", "Output"])
     with tabs[0]:
-        _axis_tab(s["transfer_axes"], "ax_t",
-                 [("x", "X"), ("y", "좌Y"), ("y2", "우Y")])
+        _axis_tab(s["transfer_axes"], "ax_t", TRANSFER_ROWS)
     with tabs[1]:
         _axis_tab(s["output_axes"], "ax_o",
                  [("x", "X"), ("y", "Y")])

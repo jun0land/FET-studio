@@ -91,6 +91,10 @@ INSET_CHAR_W = 0.40
 TICK_CHAR_W = 0.55
 # 눈금 숫자와 축선 사이 기본 간격 + 제목 뒤 여유 (px, k 배율 적용 전).
 AXIS_TITLE_PAD = 9.0
+# 우측 Y축 제목 각도 (Plotly textangle, 시계 방향 +). 90 = 위에서 아래로 읽힘 =
+# Origin 의 '270도' — 좌축(아래에서 위로)과 마주 보게 하는 논문 관례.
+RIGHT_AXIS_TITLE_ANGLE = 90
+RIGHT_AXIS_TITLE_NAME = "right_axis_title"   # 그 annotation 을 찾기 위한 이름
 
 # fit 구간 음영 shape 의 이름. 내보내기에서 이 이름의 shape 만 걷어낸다
 # (화면에서는 fit 구간을 보여주되, 논문에 넣을 그림에는 배경색을 남기지 않는다).
@@ -203,7 +207,10 @@ DEFAULTS = {
         # dual = 좌 log|I_D| + 우 √|I_D| (논문에서 소자 몇 개를 한 패널에 비교할 때
         # 흔한 형식) / log = log|I_D| 만 / sqrt = √|I_D| 만
         "mode": "dual",
-        "show_reverse": False,   # 여러 커브를 겹치므로 기본은 forward 만
+        # dual sweep 이면 갔다 오는 것을 다 그린다 (Transfer 그래프와 같게). 방향은
+        # 소자 색의 화살표가 알려준다 — 아래 show_sweep_arrows.
+        "show_reverse": True,
+        "show_sweep_arrows": True,
         "colors": {},
         # {소자명: 레전드에 쓸 이름}. 비어 있으면 소자 이름을 그대로 쓴다.
         # 개별 그래프의 '샘플명' 인셋은 전역 문구 하나라 소자마다 다를 수 없어서,
