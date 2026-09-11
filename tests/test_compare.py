@@ -86,7 +86,7 @@ def test_colors_follow_selection_order():
 
 def test_each_device_gets_one_trace_in_its_own_color():
     items = [("1-1", _curve(), "#0072B2"), ("1-2", _curve(0.5), "#D55E00")]
-    fig = compare_figure(items, _settings())
+    fig = compare_figure(items, _settings(mode="log"))
     assert len(fig.data) == 2
     assert [t.line.color for t in fig.data] == ["#0072B2", "#D55E00"]
     assert [t.line.dash for t in fig.data] == ["solid", "solid"]
@@ -94,9 +94,48 @@ def test_each_device_gets_one_trace_in_its_own_color():
 
 def test_reverse_adds_a_dashed_branch_per_device():
     items = [("1-1", _curve(), "#0072B2")]
-    fig = compare_figure(items, _settings(show_reverse=True))
+    fig = compare_figure(items, _settings(mode="log", show_reverse=True))
     assert [t.line.dash for t in fig.data] == ["solid", "dash"]
     assert {t.line.color for t in fig.data} == {"#0072B2"}
+
+
+def test_dual_mode_is_the_default_and_mirrors_the_transfer_figure_conventions():
+    """논문에서 소자 몇 개를 한 패널에 비교하는 형식: 좌축 log|I_D| 실선 + 우축
+    √|I_D| 점선, 축은 선 종류로·소자는 색으로 구분. Transfer 그래프와 같은 규약."""
+    assert DEFAULTS["compare"]["mode"] == "dual"
+    c = _curve(dual=False)
+    fit = transfer_metrics(c, PARAMS).fit
+    items = [("1-1", c, "#0072B2", fit), ("1-2", _curve(0.5, dual=False), "#D55E00", fit)]
+    fig = compare_figure(items, _settings())
+    by_name = {t.name: t for t in fig.data}
+    assert by_name["1-1 forward |I_D|"].yaxis == "y"
+    assert by_name["1-1 forward |I_D|"].line.dash == "solid"
+    assert by_name["1-1 forward √|I_D|"].yaxis == "y2"
+    assert by_name["1-1 forward √|I_D|"].line.dash == "dot"
+    assert by_name["1-1 forward √|I_D|"].line.color == "#0072B2"
+    assert by_name["1-2 forward √|I_D|"].line.color == "#D55E00"
+    # fit 직선·V_th 마커는 우축(√) 위에, 커브 색으로, √ 점선과 구분되는 파선
+    assert by_name["1-1 fit"].yaxis == "y2" and by_name["1-1 fit"].line.dash == "dash"
+    assert by_name["1-1 V_th"].yaxis == "y2" and by_name["1-1 V_th"].marker.color == "#0072B2"
+    assert fig.layout.yaxis.type == "log"
+    assert fig.layout.yaxis2.type == "linear" and fig.layout.yaxis2.side == "right"
+    assert fig.layout.yaxis2.title.text == "√|I<sub>D</sub>| (A<sup>0.5</sup>)"
+    assert fig.layout.yaxis2.range[0] == 0.0
+
+
+def test_dual_mode_reverse_keeps_the_same_line_styles():
+    """dual 은 Transfer 그래프처럼 forward/reverse 를 같은 선으로 그린다 —
+    선 종류는 축을 가리키는 데 이미 쓰였다."""
+    fig = compare_figure([("a", _curve(), "#000000")], _settings(show_reverse=True))
+    by_name = {t.name: t for t in fig.data}
+    assert by_name["a reverse |I_D|"].line.dash == "solid"
+    assert by_name["a reverse √|I_D|"].line.dash == "dot"
+
+
+def test_dual_mode_reserves_room_for_both_axis_titles():
+    fig = compare_figure([("a", _curve(dual=False), "#000")], _settings())
+    single = compare_figure([("a", _curve(dual=False), "#000")], _settings(mode="log"))
+    assert fig.layout.xaxis.domain[1] < single.layout.xaxis.domain[1]
 
 
 def test_single_axis_follows_the_mode():
@@ -275,6 +314,7 @@ def test_thumbnail_settings_do_not_touch_the_real_settings():
     thumb = compare._thumb_settings(app)
     assert thumb["axes"]["x"]["title"] == ""
     assert thumb["compare"]["legend"] is False
+    assert thumb["compare"]["mode"] == "log"        # 썸네일은 항상 log|I_D| 하나
     assert thumb["geom"]["page_w_in"] == compare.THUMB_W_IN
     # 원본은 그대로 — 썸네일 설정은 사본이어야 한다.
     assert app.settings["transfer_axes"]["x"]["title"] == DEFAULTS["transfer_axes"]["x"]["title"]

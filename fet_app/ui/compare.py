@@ -86,7 +86,7 @@ def sync_selection(app, names: list[str], checked: set[str]) -> list[str]:
 def _compare_settings(app) -> dict:
     s = app.settings
     return {"geom": s["transfer_geom"], "style": s["style"], "axes": s["transfer_axes"],
-            "compare": s["compare"], "insets": s["insets"]}
+            "compare": s["compare"], "insets": s["insets"], "trace": s["transfer_style"]}
 
 
 def _thumb_settings(app) -> dict:
@@ -99,6 +99,8 @@ def _thumb_settings(app) -> dict:
                          line_width=1.5)
     for axis in ("x", "y", "y2"):
         base["axes"][axis]["title"] = ""
+    # 썸네일은 '어느 커브인지' 알아보는 용도라 가장 낯익은 log|I_D| 하나만 그린다.
+    base["compare"]["mode"] = "log"
     base["compare"]["legend"] = False
     base["compare"]["show_fit"] = False
     base["insets"] = copy.deepcopy(base["insets"])
@@ -214,7 +216,9 @@ def _render_select(app, devices) -> None:
 def _render_edit_controls(app) -> None:
     cfg = app.settings["compare"]
     modes = list(MODE_LABELS)
-    cfg["mode"] = st.selectbox("값", modes, index=modes.index(cfg.get("mode", "log")),
+    current_mode = cfg.get("mode", "dual")
+    cfg["mode"] = st.selectbox("값", modes,
+                               index=modes.index(current_mode) if current_mode in modes else 0,
                                format_func=lambda m: MODE_LABELS[m], key="cmp_mode")
     positions = list(LEGEND_POS_LABELS)
     current = cfg.get("legend_pos", "bottom-left")
@@ -233,8 +237,8 @@ def _render_edit_controls(app) -> None:
     with c3:
         cfg["show_fit"] = st.checkbox("fit 직선", value=bool(cfg.get("show_fit", True)),
                                       key="cmp_fit")
-    if cfg["show_fit"] and cfg["mode"] != "sqrt":
-        st.caption("fit 직선·V_th 마커는 √|I_D| 모드에서 그려집니다 "
+    if cfg["show_fit"] and cfg["mode"] == "log":
+        st.caption("fit 직선·V_th 마커는 √|I_D| 축이 있는 모드에서 그려집니다 "
                    "(fit 은 √|I_D| 위의 직선이라서요).")
 
 

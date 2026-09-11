@@ -200,7 +200,9 @@ DEFAULTS = {
     # 돌려 쓴다. 선택 자체(어떤 소자를 겹칠지)는 서식이 아니라 그때그때의 작업
     # 상태라 AppState.compare_selected 에 둔다.
     "compare": {
-        "mode": "log",           # log = log|I_D| / sqrt = √|I_D|
+        # dual = 좌 log|I_D| + 우 √|I_D| (논문에서 소자 몇 개를 한 패널에 비교할 때
+        # 흔한 형식) / log = log|I_D| 만 / sqrt = √|I_D| 만
+        "mode": "dual",
         "show_reverse": False,   # 여러 커브를 겹치므로 기본은 forward 만
         "colors": {},
         # {소자명: 레전드에 쓸 이름}. 비어 있으면 소자 이름을 그대로 쓴다.
