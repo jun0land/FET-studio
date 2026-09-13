@@ -69,6 +69,86 @@ def tick_decimals(dtick: float) -> int:
     return max(0, -math.floor(math.log10(d) + 1e-9))
 
 
+# 사용자가 넣은 눈금 간격이 이보다 많은 눈금을 만들면 무시하고 자동으로 돌아간다.
+# 실측: log 축에 dtick 0.001(decade)을 넣으면 눈금이 8000 개 찍혀 라벨이 검은
+# 덩어리가 되고 렌더가 6 초 걸린다(브라우저는 그대로 멈춘다).
+MAX_TICKS = 200
+
+
+def _finite(value) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def manual_axis_bound(value, is_log: bool) -> float | None:
+    """사용자가 넣은 축 min/max 한쪽을 Plotly 의 range 단위로 바꾼다.
+
+    log 축의 range 는 **값이 아니라 지수**다 (1E-12 이면 -12). 그런데 패널에는
+    'min/max' 라고만 적혀 있어서 실제 전류값(1e-12)을 넣는 것이 자연스럽고, 그러면
+    range 가 [1e-12, 1e-3] = 10^1e-12 ~ 10^1e-3 (거의 1 A 근처)로 잡혀 커브가
+    화면 밖으로 나가고 그래프가 텅 빈다(실측).
+
+    그래서 log 축에서는 양수를 '전류값' 으로 보고 log10 을 취하고, 0 이하는
+    '지수' 로 본다 — |I_D| 는 항상 양수이므로 음수·0 은 값일 수 없고, 이 앱이
+    다루는 전류(<= 1E-3)에서 양수 지수는 나올 수 없다. 둘 다 뜻이 통한다.
+    """
+    v = _finite(value)
+    if v is None or not is_log:
+        return v
+    return math.log10(v) if v > 0 else v
+
+
+def axis_range(cfg: dict, data_min, data_max, is_log: bool) -> list[float] | None:
+    """축 범위를 확정한다. 쓸 수 없는 값은 데이터 범위로 되돌린다.
+
+    auto 가 꺼져 있어도 한쪽이 비어 있으면 그쪽만 데이터 범위를 쓴다. lo == hi
+    (폭 0)면 Plotly 가 축을 그리지 못하므로 범위 지정 자체를 포기한다 — 사용자가
+    실수로 같은 값을 넣었다고 그래프를 잃으면 안 된다.
+    """
+    auto = bool(cfg.get("auto", True))
+    lo = data_min if auto else manual_axis_bound(cfg.get("min"), is_log)
+    hi = data_max if auto else manual_axis_bound(cfg.get("max"), is_log)
+    if lo is None:
+        lo = _finite(data_min)
+    if hi is None:
+        hi = _finite(data_max)
+    if lo is None or hi is None or lo == hi:
+        return None
+    return [lo, hi]
+
+
+def valid_dtick(value, lo, hi, is_log: bool):
+    """쓸 수 있는 눈금 간격이면 그대로, 아니면 None (= Plotly 자동).
+
+    0 이나 음수는 Plotly 에서 눈금을 아예 못 만들고, 너무 촘촘하면 눈금 라벨이
+    서로 겹쳐 검은 덩어리가 된다. 둘 다 '그래프가 깨진' 것으로 보이므로 여기서
+    걸러 자동 간격으로 되돌린다.
+    """
+    d = _finite(value)
+    if d is None or d <= 0:
+        return None
+    lo_f, hi_f = _finite(lo), _finite(hi)
+    if lo_f is not None and hi_f is not None:
+        span = abs(hi_f - lo_f)          # log 축은 range 가 지수라 span 이 decade 수다
+        if span > 0 and span / d > MAX_TICKS:
+            return None
+    return d
+
+
+def valid_minor_dtick(value, is_log: bool):
+    """보조 눈금 간격. log 축은 'D1'/'D2' 문자열도 쓴다 (1~9 / 2·5 배 위치)."""
+    if isinstance(value, str):
+        token = value.strip().upper()
+        if is_log and token in ("D1", "D2"):
+            return token
+        value = token                      # 숫자 문자열이면 아래에서 걸러진다
+    d = _finite(value)
+    return d if d is not None and d > 0 else None
+
+
 def _apply_tick_spacing(lay: dict, cfg: dict, lo, hi) -> None:
     """major dtick 과 그 간격에 맞춘 tickformat 을 정한다 (논문 스타일: 한 축의
     모든 눈금이 같은 소수 자릿수).
@@ -81,10 +161,11 @@ def _apply_tick_spacing(lay: dict, cfg: dict, lo, hi) -> None:
     선택에 그대로 맡긴다 — 자릿수를 고칠 수 없는 축의 눈금 위치를 굳이 바꿔
     기존 그림을 흔들 이유가 없다.
     """
-    explicit = cfg.get("dtick")
+    is_log = cfg.get("type", "linear") == "log"
+    explicit = valid_dtick(cfg.get("dtick"), lo, hi, is_log)
     if explicit is not None:
         lay["dtick"] = explicit
-    if cfg.get("type", "linear") != "linear" or lo is None or hi is None:
+    if is_log or lo is None or hi is None:
         return
     if max(abs(float(lo)), abs(float(hi))) >= PLAIN_TICK_MAX_VALUE:
         return
@@ -153,15 +234,19 @@ def axis_layout(cfg: dict, style: dict, k: float = 1.0,
     }
     if cfg.get("title_standoff") is not None:
         lay["title"]["standoff"] = float(cfg["title_standoff"]) * k
-    if cfg.get("minor_dtick") is not None:
-        lay["minor"] = {"dtick": cfg["minor_dtick"], "ticks": "inside",
+    is_log = cfg.get("type", "linear") == "log"
+    minor = valid_minor_dtick(cfg.get("minor_dtick"), is_log)
+    if minor is not None:
+        lay["minor"] = {"dtick": minor, "ticks": "inside",
                         "ticklen": max(1, round(4 * k)),
                         "tickwidth": max(0.5, 1.0 * k), "tickcolor": axis_color}
 
-    # 범위: auto 여도 데이터 min/max 를 명시해 plotly 자동 패딩을 없앤다 (스펙 §5.1)
-    lo = cfg.get("min") if not cfg.get("auto", True) else data_min
-    hi = cfg.get("max") if not cfg.get("auto", True) else data_max
-    if lo is not None and hi is not None:
+    # 범위: auto 여도 데이터 min/max 를 명시해 plotly 자동 패딩을 없앤다 (스펙 §5.1).
+    # 사용자가 넣은 값은 axis_range 가 검사·환산한다 (log 축은 전류값 -> 지수).
+    rng = axis_range(cfg, data_min, data_max, is_log)
+    lo = hi = None
+    if rng is not None:
+        lo, hi = rng
         lay["range"] = [lo, hi]
         lay["autorange"] = False
 

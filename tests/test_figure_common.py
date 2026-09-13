@@ -6,11 +6,12 @@ import plotly.graph_objects as go
 import pytest
 
 from fet_app.constants import DEFAULTS
-from fet_app.figure_common import (DPI, add_curved_arrow, apply_inset_text,
-                                   axis_layout, curve_arrow_points, domains,
-                                   fit_y_margins, new_figure, nice_dtick,
-                                   plot_px_size, px_size, tick_decimals,
-                                   tick_label_texts, y_axis_space_px)
+from fet_app.figure_common import (DPI, MAX_TICKS, add_curved_arrow, apply_inset_text,
+                                   axis_layout, axis_range, curve_arrow_points, domains,
+                                   fit_y_margins, manual_axis_bound, new_figure,
+                                   nice_dtick, plot_px_size, px_size, tick_decimals,
+                                   tick_label_texts, valid_dtick, valid_minor_dtick,
+                                   y_axis_space_px)
 
 
 def test_px_size_uses_96_dpi():
@@ -333,3 +334,76 @@ def test_add_curved_arrow_ignores_degenerate_input():
     fig = new_figure(DEFAULTS["output_geom"], 1.0)
     add_curved_arrow(fig, [(0.5, 0.5)], 400.0, 400.0, "#000000", 2.0, 1.0)
     assert not fig.layout.shapes
+
+
+# ---------------- 축 입력값 방어 (사용자가 넣은 범위·간격) ----------------
+
+def _log_cfg(**over):
+    cfg = copy.deepcopy(DEFAULTS["transfer_axes"]["y"])   # type=log
+    cfg.update(over)
+    return cfg
+
+
+def test_log_axis_accepts_current_values_as_well_as_exponents():
+    """FIX: log 축 range 는 지수인데 패널은 'min/max' 라고만 적혀 있어서 실제
+    전류값(1e-12)을 넣으면 range 가 10^1e-12 근처로 잡혀 그래프가 텅 비었다(실측).
+    양수는 전류값으로 보고 log10, 0 이하는 지수로 본다."""
+    assert manual_axis_bound(1e-12, is_log=True) == -12.0
+    assert manual_axis_bound(-12, is_log=True) == -12.0
+    assert manual_axis_bound(1e-12, is_log=False) == 1e-12      # linear 축은 그대로
+    cfg = _log_cfg(auto=False, min=1e-12, max=1e-3)
+    lay = axis_layout(cfg, DEFAULTS["style"], k=1.0)
+    assert lay["range"] == [-12.0, -3.0]
+
+
+def test_axis_range_falls_back_to_data_when_a_bound_is_unusable():
+    cfg = _log_cfg(auto=False, min=None, max=-3.0)
+    assert axis_range(cfg, -12.0, -4.0, is_log=True) == [-12.0, -3.0]   # min 만 데이터
+    bad = _log_cfg(auto=False, min="", max="abc")
+    assert axis_range(bad, -12.0, -4.0, is_log=True) == [-12.0, -4.0]
+
+
+def test_zero_width_range_is_dropped_instead_of_killing_the_axis():
+    """min == max 면 Plotly 가 축을 그리지 못한다 — 실수로 같은 값을 넣었다고
+    그래프를 잃으면 안 되니 범위 지정을 포기하고 자동으로 돌아간다."""
+    cfg = _log_cfg(auto=False, min=-9.0, max=-9.0)
+    assert axis_range(cfg, None, None, is_log=True) is None
+    lay = axis_layout(cfg, DEFAULTS["style"], k=1.0)
+    assert "range" not in lay and "autorange" not in lay
+
+
+def test_reversed_range_is_left_alone():
+    """뒤집힌 범위는 Plotly 가 제대로 그린다 (일부러 뒤집는 경우도 있다)."""
+    cfg = dict(DEFAULTS["transfer_axes"]["x"], auto=False, min=20.0, max=-60.0)
+    assert axis_layout(cfg, DEFAULTS["style"], k=1.0)["range"] == [20.0, -60.0]
+
+
+def test_non_positive_or_absurd_dtick_falls_back_to_auto():
+    """0·음수 간격은 눈금을 아예 못 만들고, 너무 촘촘하면 라벨이 검은 덩어리가
+    된다 (log 축 0.001 decade -> 눈금 8000 개, 렌더 6초 — 실측)."""
+    assert valid_dtick(0.0, -12.0, -3.0, is_log=True) is None
+    assert valid_dtick(-1.0, -12.0, -3.0, is_log=True) is None
+    assert valid_dtick(float("nan"), -12.0, -3.0, is_log=True) is None
+    assert valid_dtick(0.001, -12.0, -3.0, is_log=True) is None     # 9000 눈금
+    assert valid_dtick(1.0, -12.0, -3.0, is_log=True) == 1.0
+    # 범위를 모르면 촘촘함을 판단할 수 없다 — 양수면 그대로 존중한다.
+    assert valid_dtick(0.001, None, None, is_log=True) == 0.001
+    span = 80.0
+    assert valid_dtick(span / (MAX_TICKS + 10), -60.0, 20.0, is_log=False) is None
+
+    lay = axis_layout(dict(DEFAULTS["transfer_axes"]["x"], dtick=0.0),
+                      DEFAULTS["style"], k=1.0, data_min=-60.0, data_max=20.0)
+    assert lay["dtick"] != 0.0                                   # 자동 간격으로 대체
+
+
+def test_minor_dtick_only_takes_values_plotly_understands():
+    assert valid_minor_dtick("D1", is_log=True) == "D1"
+    assert valid_minor_dtick("d2", is_log=True) == "D2"
+    assert valid_minor_dtick("D1", is_log=False) is None          # linear 축엔 없다
+    assert valid_minor_dtick("아무거나", is_log=True) is None
+    assert valid_minor_dtick(0.0, is_log=False) is None
+    assert valid_minor_dtick(-1.0, is_log=False) is None
+    assert valid_minor_dtick(5.0, is_log=False) == 5.0
+    lay = axis_layout(dict(DEFAULTS["transfer_axes"]["x"], minor_dtick=0.0),
+                      DEFAULTS["style"], k=1.0)
+    assert "minor" not in lay
